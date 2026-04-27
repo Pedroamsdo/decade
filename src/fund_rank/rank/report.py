@@ -164,8 +164,16 @@ def run(settings: Settings, as_of: date) -> Path:
     body.append("- Stitch CVM 175: aplicado para fundos com 1 classe; multi-classe sob mesmo guarda-chuva ficam em série orfã.")
     body.append("")
 
+    content = "\n".join(body)
     out = settings.pipeline.reports_root / f"as_of={as_of.isoformat()}" / "ranking.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(body))
+    out.write_text(content)
     log.info("rank.report.written", path=str(out))
+
+    # Also pin the latest run to the repo root, since `ranking.md` is the
+    # case-study deliverable. Stable filename keeps reviewers from chasing
+    # partition paths.
+    repo_root_md = Path("ranking.md")
+    repo_root_md.write_text(content)
+    log.info("rank.report.pinned", path=str(repo_root_md.resolve()))
     return out
