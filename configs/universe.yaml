@@ -1,0 +1,86 @@
+# Filtros do universo aplicados antes da segmentação, e regras por segmento.
+# Limites e thresholds ajustáveis sem mudar código.
+
+filters_global:
+  situacao_aceita: "EM FUNCIONAMENTO NORMAL"
+  situacao_rejeitar_passada:
+    - "EM LIQUIDACAO"
+    - "EM LIQUIDACAO JUDICIAL"
+    - "PARALISADO"
+    - "CANCELADA"
+  situacao_lookback_months: 12
+
+  fundo_exclusivo: false      # exclui FUNDO_EXCLUSIVO=S
+  condominio_aceito: ["Aberto"]
+
+  # Captação ativa — proxy: dias com CAPTC_DIA > 0 nos últimos N dias
+  captacao_min_dias_positivos: 5
+  captacao_window_days: 90
+
+  # Histórico mínimo (dias úteis); tiers: HIGH ≥ 756, MED ≥ 504, LOW ≥ 252
+  historico_min_dias_uteis: 252
+  historico_high_dias_uteis: 756
+  historico_med_dias_uteis: 504
+
+  # Detecção de incorporação/cisão: |z-score do retorno diário| sobre janela rolling
+  jump_detection_sigma: 5.0
+  jump_detection_window_days: 60
+
+  # Master/feeder — threshold de holding em cotas de fundo único para identificar feeder
+  master_feeder_threshold: 0.95
+
+segments:
+
+  caixa:
+    label: "Caixa (D+0/D+1, varejo)"
+    classes_anbima_starts:
+      - "Renda Fixa Simples"
+      - "Renda Fixa Duracao Baixa Soberano"
+      - "Renda Fixa Duracao Baixa Grau de Investimento"
+    classes_anbima_keywords_indexador:
+      - "Indexados"
+      - "CDI"
+    cotizacao_max_dias: 1
+    liquidacao_max_dias: 1
+    pl_mediano_minimo_brl: 50_000_000
+    cotistas_minimo: 100
+    publico_alvo_aceitos:
+      - "Investidor em Geral"
+      - "Investidores em Geral"
+    benchmark: CDI
+
+  rfgeral:
+    label: "RF Geral (carteira estratégica varejo)"
+    classes_anbima_starts:
+      - "Renda Fixa Duracao Media"
+      - "Renda Fixa Duracao Alta"
+      - "Renda Fixa Duracao Livre"
+      - "Renda Fixa Indexados"
+      - "Renda Fixa Duracao Baixa Grau de Investimento"
+      - "Renda Fixa Duracao Media Grau de Investimento"
+      - "Renda Fixa Duracao Alta Grau de Investimento"
+    classes_anbima_excluir_indexador:
+      - "CDI"           # CDI puro vai para Caixa
+    cotizacao_max_dias: 30
+    liquidacao_max_dias: 30
+    pl_mediano_minimo_brl: 50_000_000
+    cotistas_minimo: 100
+    publico_alvo_aceitos:
+      - "Investidor em Geral"
+      - "Investidores em Geral"
+    benchmark: CDI
+
+  qualificado:
+    label: "Qualificado / Crédito"
+    classes_anbima_starts:
+      - "Renda Fixa Credito Livre"
+      - "Renda Fixa Divida Externa"
+      - "Renda Fixa"           # qualquer RF com publico_alvo restrito
+    publico_alvo_aceitos:
+      - "Investidor Qualificado"
+      - "Investidores Qualificados"
+      - "Investidor Profissional"
+      - "Investidores Profissionais"
+    pl_mediano_minimo_brl: 30_000_000
+    cotistas_minimo: 5
+    benchmark: CDI

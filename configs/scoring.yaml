@@ -1,0 +1,65 @@
+# Pesos do score por segmento.
+# direcao=positive => z-score como está; direcao=negative => sinal invertido antes de somar.
+# Pesos somam 1.00 dentro de cada segmento (validado em runtime).
+
+metric_directions:
+  tracking_error_cdi_12m: negative
+  pct_cdi_12m: positive
+  info_ratio_12m: positive
+  sortino_24m: positive
+  excesso_retorno_24m: positive
+  ir_cdi_spread_24m: positive
+  max_drawdown_36m: negative
+  downside_dev_24m: negative
+  retorno_stress_event: positive
+  consistency_rolling_12m_above_bench: positive
+  custo_total_estimado: negative
+  log_pl_mediano_12m: positive
+  liquidez_settlement_window_days: negative
+  tracking_error_class_bench_12m: negative
+  drawdown_duration_days_36m: negative
+
+weights:
+  caixa:
+    tracking_error_cdi_12m: 0.30
+    pct_cdi_12m: 0.25
+    consistency_rolling_12m_above_bench: 0.05
+    custo_total_estimado: 0.20
+    log_pl_mediano_12m: 0.10
+    liquidez_settlement_window_days: 0.10
+
+  rfgeral:
+    info_ratio_12m: 0.25
+    sortino_24m: 0.10
+    excesso_retorno_24m: 0.20
+    max_drawdown_36m: 0.15
+    consistency_rolling_12m_above_bench: 0.10
+    custo_total_estimado: 0.10
+    log_pl_mediano_12m: 0.05
+    liquidez_settlement_window_days: 0.05
+    # tracking_error_class_bench_12m removed (mantém soma=1.00; sinal redundante com info_ratio_12m)
+
+  qualificado:
+    sortino_24m: 0.20
+    ir_cdi_spread_24m: 0.20
+    max_drawdown_36m: 0.20
+    downside_dev_24m: 0.10
+    retorno_stress_event: 0.10
+    custo_total_estimado: 0.10
+    log_pl_mediano_12m: 0.05
+    liquidez_settlement_window_days: 0.05
+    # drawdown_duration_days_36m removed (mantém soma=1.00; redundante com max_drawdown_36m)
+
+selection:
+  top_n: 5
+  tiebreak_columns:
+    - custo_total_estimado     # menor é melhor
+    - log_pl_mediano_12m       # maior é melhor (sinal aplicado no scorer)
+
+stress_events:
+  - name: covid_2020
+    start: 2020-03-01
+    end: 2020-04-30
+  - name: marola_credito_2024
+    start: 2024-05-01
+    end: 2024-07-31

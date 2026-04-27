@@ -1,0 +1,19 @@
+# v1: CDI como benchmark universal. IMA-B e IRF-M ficam no backlog v2 — feeds ANBIMA são pagos
+# e a segmentação do universo por duration mitiga o uso de um benchmark único.
+
+cdi:
+  source: bcb_sgs_12
+  unit: percent_per_day      # SGS retorna % a.d.; convertido para fator (1 + r/100) no load
+  active: true
+
+ima_b_5:
+  status: backlog_v2
+  active: false
+
+ima_b_5_plus:
+  status: backlog_v2
+  active: false
+
+irf_m:
+  status: backlog_v2
+  active: false

@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Project data — bronze/silver/gold are reproducible artifacts, not source
+data/
+reports/
+
+# Notebooks state
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Lock files we don't track (we track requirements.txt instead)
+uv.lock
+poetry.lock
+
+# Case study PDF — not part of the source code
+*.pdf

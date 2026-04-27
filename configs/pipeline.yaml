@@ -1,0 +1,39 @@
+data_root: data
+reports_root: reports
+
+sources:
+  cvm_cad_fi:
+    url: https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv
+    extension: csv
+  cvm_cad_fi_hist:
+    url: https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi_hist.zip
+    extension: zip
+  cvm_registro_classe:
+    url: https://dados.cvm.gov.br/dados/FI/CAD/DADOS/registro_fundo_classe.zip
+    extension: zip
+  cvm_inf_diario:
+    url_template: https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_{yyyymm}.zip
+    extension: zip
+  cvm_inf_diario_hist:
+    url_template: https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/HIST/inf_diario_fi_{yyyy}.zip
+    extension: zip
+  cvm_cda:
+    url_template: https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS/cda_fi_{yyyymm}.zip
+    extension: zip
+  bcb_cdi:
+    # SGS série 12 = CDI diário em %
+    url_template: https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial={dt_ini}&dataFinal={dt_fim}
+    extension: json
+
+http:
+  timeout_seconds: 180
+  max_retries: 5
+  retry_backoff_min_seconds: 2
+  retry_backoff_max_seconds: 60
+  user_agent: "fund-rank/0.1 (+https://github.com/Pedroamsdo/decade)"
+
+ingest:
+  # Janela histórica usada nas métricas mais longas (36M)
+  inf_diario_lookback_months: 60
+  cda_lookback_months: 13
+  cdi_lookback_years: 5
