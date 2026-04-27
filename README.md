@@ -4,6 +4,13 @@ Pipeline that ranks Brazilian fixed-income funds against a configurable referenc
 
 Built for the **Decade PS** take-home case, sourcing data exclusively from public CVM Dados Abertos and BCB SGS. ANBIMA proprietary feeds are not required.
 
+## For reviewers
+
+- **[ranking.md](ranking.md)** — top 5 per segment for `as_of = 2025-12-31`, with the per-fund metrics that drove the rank.
+- **[docs/methodology.md](docs/methodology.md)** — what each metric means, the segment weights, and the scoring formula.
+- **[docs/decisions.md](docs/decisions.md)** — ADRs for the non-obvious choices (CNPJ_Classe ranking, feeders-not-masters, CVM 175 stitch, intra-segment z-scores, etc.).
+- **[docs/scaling.md](docs/scaling.md)** — laptop → S3 → distributed migration path; the production cron is in `src/fund_rank/flows/`.
+
 ## Quickstart
 
 ```bash
@@ -34,6 +41,22 @@ make report AS_OF=2025-12-31
 ```
 
 `AS_OF` is the **reference date** of the ranking — not the execution date — so re-running with the same `AS_OF` is idempotent.
+
+The default lookback is **10 years** of `INF_DIARIO` history (with automatic fallback to CVM's yearly HIST zips for years older than the monthly retention window). On first run, expect ~700 MB of bronze downloads taking ~5 minutes; subsequent runs are no-ops where source content is unchanged (etag + sha256 idempotency).
+
+To run with a smaller window for quick iteration:
+```bash
+.venv/bin/python -m fund_rank.cli ingest --as-of 2025-12-31 --inf-diario-months 14 --cdi-years 5
+```
+
+## Tests
+
+```bash
+make test
+# or: .venv/bin/python -m pytest
+```
+
+27 unit tests cover normalization, CNPJ cleaning, scoring (z-score + direction handling), drawdown / annualization, jump detection, segment classification, and weights-sum-to-1.0 invariants.
 
 ## Layout
 

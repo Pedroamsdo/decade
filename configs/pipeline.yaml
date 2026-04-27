@@ -33,7 +33,9 @@ http:
   user_agent: "fund-rank/0.1 (+https://github.com/Pedroamsdo/decade)"
 
 ingest:
-  # Janela histórica usada nas métricas mais longas (36M)
-  inf_diario_lookback_months: 60
+  # Janela histórica completa: 10 anos. CVM publica monthly por ~24 meses;
+  # anos mais antigos caem no HIST yearly (1 zip por ano), tratado por fallback
+  # automático em sources/cvm.py + bronze/ingest_inf_diario.py.
+  inf_diario_lookback_months: 120
   cda_lookback_months: 13
-  cdi_lookback_years: 5
+  cdi_lookback_years: 10
