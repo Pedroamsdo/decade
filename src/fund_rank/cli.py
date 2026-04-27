@@ -100,8 +100,18 @@ def build(
     """Build silver + gold layers (typed parquet, master/feeder graph, metrics)."""
     configure_logging()
     log = get_logger("fund_rank.cli.build")
-    log.warning("build.not_implemented", as_of=as_of)
-    raise typer.Exit(code=2)
+    settings = get_settings()
+    as_of_d = _parse_as_of(as_of)
+
+    from fund_rank.gold import compute_metrics
+    from fund_rank.silver import build_funds, build_quota_series, build_universe
+
+    log.info("build.start", as_of=as_of_d.isoformat())
+    build_funds.run(settings, as_of_d)
+    build_quota_series.run(settings, as_of_d)
+    build_universe.run(settings, as_of_d)
+    compute_metrics.run(settings, as_of_d)
+    log.info("build.done", as_of=as_of_d.isoformat())
 
 
 @app.command()
@@ -111,8 +121,13 @@ def rank(
     """Compute rankings into gold/ranking/."""
     configure_logging()
     log = get_logger("fund_rank.cli.rank")
-    log.warning("rank.not_implemented", as_of=as_of)
-    raise typer.Exit(code=2)
+    settings = get_settings()
+    as_of_d = _parse_as_of(as_of)
+
+    from fund_rank.rank import score
+
+    score.run(settings, as_of_d)
+    log.info("rank.done", as_of=as_of_d.isoformat())
 
 
 @app.command()
@@ -122,8 +137,13 @@ def report(
     """Render reports/as_of=.../ranking.md."""
     configure_logging()
     log = get_logger("fund_rank.cli.report")
-    log.warning("report.not_implemented", as_of=as_of)
-    raise typer.Exit(code=2)
+    settings = get_settings()
+    as_of_d = _parse_as_of(as_of)
+
+    from fund_rank.rank import report as rank_report
+
+    rank_report.run(settings, as_of_d)
+    log.info("report.done", as_of=as_of_d.isoformat())
 
 
 if __name__ == "__main__":

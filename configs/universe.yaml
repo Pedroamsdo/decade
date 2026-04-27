@@ -1,16 +1,20 @@
 # Filtros do universo aplicados antes da segmentação, e regras por segmento.
-# Limites e thresholds ajustáveis sem mudar código.
+# Strings refletem os valores reais publicados pela CVM em registro_fundo_classe.zip
+# e cad_fi.csv (verificado contra dump de 2026-04-25). Comparação é feita após
+# normalização (strip accents + lowercase + collapse whitespace), portanto
+# os valores aqui podem usar acentuação e maiúsculas — o silver normaliza ambos os lados.
 
 filters_global:
-  situacao_aceita: "EM FUNCIONAMENTO NORMAL"
+  situacao_aceita: "Em Funcionamento Normal"
   situacao_rejeitar_passada:
-    - "EM LIQUIDACAO"
-    - "EM LIQUIDACAO JUDICIAL"
-    - "PARALISADO"
-    - "CANCELADA"
+    - "Em Liquidação"
+    - "Em Liquidação Judicial"
+    - "Cancelado"
+    - "Paralisado"
+    - "Fase Pré-Operacional"
   situacao_lookback_months: 12
 
-  fundo_exclusivo: false      # exclui FUNDO_EXCLUSIVO=S
+  fundo_exclusivo: false      # exclui Exclusivo=S
   condominio_aceito: ["Aberto"]
 
   # Captação ativa — proxy: dias com CAPTC_DIA > 0 nos últimos N dias
@@ -29,58 +33,54 @@ filters_global:
   # Master/feeder — threshold de holding em cotas de fundo único para identificar feeder
   master_feeder_threshold: 0.95
 
+# Padrões de match: prefixos curtos que cobrem variantes da CVM ("Invest.", "Crédito Liv", etc.)
+# Critério é prefixo após normalização — o YAML pode usar acento, abreviação ou texto integral.
+
 segments:
 
   caixa:
     label: "Caixa (D+0/D+1, varejo)"
     classes_anbima_starts:
       - "Renda Fixa Simples"
-      - "Renda Fixa Duracao Baixa Soberano"
-      - "Renda Fixa Duracao Baixa Grau de Investimento"
-    classes_anbima_keywords_indexador:
-      - "Indexados"
-      - "CDI"
-    cotizacao_max_dias: 1
+      - "Renda Fixa Duração Baixa Soberano"
+      - "Renda Fixa Duração Baixa Grau de Invest"   # casa "Grau de Invest." e "Grau de Investimento"
+    cotizacao_max_dias: 1     # nota: dado não está em CVM Dados Abertos; filtro inativo até integrar 'extrato_fi'
     liquidacao_max_dias: 1
     pl_mediano_minimo_brl: 50_000_000
     cotistas_minimo: 100
     publico_alvo_aceitos:
-      - "Investidor em Geral"
-      - "Investidores em Geral"
+      - "Público Geral"
     benchmark: CDI
 
   rfgeral:
     label: "RF Geral (carteira estratégica varejo)"
     classes_anbima_starts:
-      - "Renda Fixa Duracao Media"
-      - "Renda Fixa Duracao Alta"
-      - "Renda Fixa Duracao Livre"
-      - "Renda Fixa Indexados"
-      - "Renda Fixa Duracao Baixa Grau de Investimento"
-      - "Renda Fixa Duracao Media Grau de Investimento"
-      - "Renda Fixa Duracao Alta Grau de Investimento"
-    classes_anbima_excluir_indexador:
-      - "CDI"           # CDI puro vai para Caixa
+      - "Renda Fixa Duração Média"
+      - "Renda Fixa Duração Alta"
+      - "Renda Fixa Duração Livre Soberano"
+      - "Renda Fixa Duração Livre Grau de Invest"
+      - "Renda Fixa Duração Baixa Crédito"           # baixa+credito → varejo estratégico
+      - "Renda Fixa Indexados"                       # IMA-B etc. — duration heterogenea, mas cabem aqui em v1
     cotizacao_max_dias: 30
     liquidacao_max_dias: 30
     pl_mediano_minimo_brl: 50_000_000
     cotistas_minimo: 100
     publico_alvo_aceitos:
-      - "Investidor em Geral"
-      - "Investidores em Geral"
+      - "Público Geral"
     benchmark: CDI
 
   qualificado:
     label: "Qualificado / Crédito"
     classes_anbima_starts:
-      - "Renda Fixa Credito Livre"
-      - "Renda Fixa Divida Externa"
-      - "Renda Fixa"           # qualquer RF com publico_alvo restrito
+      - "Renda Fixa Duração Livre Crédito"
+      - "Renda Fixa Duração Média Crédito"
+      - "Renda Fixa Duração Alta Crédito"
+      - "Renda Fixa Duração Baixa Crédito"           # poderia ir para varejo se publico=Geral; aqui exige Qualificado
+      - "Renda Fixa Dívida Externa"
+      - "Renda Fixa Invest. no Exterior"
     publico_alvo_aceitos:
-      - "Investidor Qualificado"
-      - "Investidores Qualificados"
-      - "Investidor Profissional"
-      - "Investidores Profissionais"
+      - "Qualificado"
+      - "Profissional"
     pl_mediano_minimo_brl: 30_000_000
     cotistas_minimo: 5
     benchmark: CDI
