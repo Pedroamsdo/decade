@@ -26,10 +26,6 @@ Cotization/payment-window filters (`D+0`, `D+1`, etc.) are configured but inacti
 
 For every fundo guarda-chuva that adapted to CVM Resolution 175 between 2023 and 2025, the legacy `CNPJ_FUNDO` reported pre-adaptation is mapped to the new `CNPJ_Classe` whenever there is exactly one classe per fundo. The history thus stitched is flagged `history_source = "stitched_cvm175"`. Multi-class umbrellas are not stitched (`history_source = "orphan_pre_cvm175"`) and lose pre-adaptation history.
 
-### Master/feeder
-
-Detected from `cda_fi_BLC_2_YYYYMM.csv` (Cotas de Fundos): when ≥ 95 % of a class's holdings sit in a single target fund/class, we mark the source as a feeder. Within a segment, multiple feeders pointing to the same master are deduplicated keeping the lowest-fee one.
-
 ## 2. Segments
 
 Three customer profiles ranked separately. A class belongs to **at most one** segment, determined by ANBIMA classification (`Classificacao_Anbima` from `registro_classe.csv`) plus public-target filter (`Publico_Alvo`).

@@ -16,20 +16,6 @@ ADRs for non-obvious choices in `fund_rank`. Each decision lists the alternative
 
 ---
 
-## ADR-002 · Rank feeders, not masters
-
-**Status:** accepted · 2026-04-25
-
-**Context.** A FIC (Fundo de Investimento em Cotas) holds ≥ 95 % in a single master fund. The end investor *can only buy the feeder*; the feeder's `taxa_adm` is what the investor pays.
-
-**Decision.** Identify feeders via CDA `BLC_2` (Cotas de Fundos) and rank the feeder. When multiple feeders point at the same master *and* qualify for the same segment, deduplicate keeping the one with lowest `taxa_adm_pct`.
-
-**Alternative.** Rank masters. Rejected because masters are often institutional / investable only via an attached feeder, so masters' returns are not investable to the customer. This would inflate scores with non-actionable picks.
-
-**Trade-off.** This conflates *channel preference* (which broker offers a cheaper feeder) with *manager quality*. Acceptable for the case study; would re-evaluate with a distribution team in production.
-
----
-
 ## ADR-003 · CDI as the sole benchmark in v1
 
 **Status:** accepted · 2026-04-25

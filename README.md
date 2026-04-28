@@ -83,7 +83,6 @@ See [docs/methodology.md](docs/methodology.md) for the metric definitions and pe
 | CVM CAD | `https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv` | snapshot, T+1 |
 | CVM Registro Classe | `https://dados.cvm.gov.br/dados/FI/CAD/DADOS/registro_fundo_classe.zip` | snapshot, T+1 |
 | CVM INF_DIARIO | `https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_YYYYMM.zip` | daily (zip mensal), T+1 |
-| CVM CDA | `https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS/cda_fi_YYYYMM.zip` | mensal, T+30 |
 | BCB SGS série 12 | `https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json` | diária, T+1 |
 
 ## Production path

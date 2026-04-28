@@ -169,24 +169,6 @@ def run(settings: Settings, as_of: date) -> dict[str, Path]:
         seg_df = pre_filter.filter(seg_filter)
         seg_df = seg_df.with_columns(pl.lit(seg_id).alias("segment_id"))
 
-        # Master/feeder dedupe within segment
-        if "cnpj_master" in seg_df.columns and seg_df["cnpj_master"].is_not_null().any():
-            seg_df = (
-                seg_df.sort(
-                    ["cnpj_master", "taxa_adm_pct"],
-                    descending=[False, False],
-                    nulls_last=True,
-                )
-                .with_columns(
-                    pl.when(pl.col("cnpj_master").is_not_null())
-                    .then(pl.cum_count("cnpj_master").over("cnpj_master"))
-                    .otherwise(1)
-                    .alias("_dedupe_rank")
-                )
-                .filter(pl.col("_dedupe_rank") == 1)
-                .drop("_dedupe_rank")
-            )
-
         out = (
             silver_path(settings, "universe", as_of.isoformat(), f"segment={seg_id}").parent
             / "data.parquet"

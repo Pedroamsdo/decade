@@ -33,17 +33,12 @@ def ingest(
     skip: List[str] = typer.Option(
         [],
         "--skip",
-        help="Source names to skip (e.g. cvm_cda, cvm_inf_diario).",
+        help="Source names to skip (e.g. cvm_inf_diario, bcb_cdi).",
     ),
     inf_diario_months: Optional[int] = typer.Option(
         None,
         "--inf-diario-months",
         help="Override lookback for INF_DIARIO (default from configs/pipeline.yaml).",
-    ),
-    cda_months: Optional[int] = typer.Option(
-        None,
-        "--cda-months",
-        help="Override lookback for CDA.",
     ),
     cdi_years: Optional[int] = typer.Option(
         None,
@@ -60,7 +55,6 @@ def ingest(
 
     from fund_rank.bronze import (
         ingest_cad_fi,
-        ingest_cda,
         ingest_cdi,
         ingest_inf_diario,
         ingest_registro_classe,
@@ -85,10 +79,6 @@ def ingest(
             ingest_inf_diario.run(
                 settings, client, as_of=as_of_d, today=today_d, lookback_months=inf_diario_months
             )
-        if "cvm_cda" not in skip:
-            ingest_cda.run(
-                settings, client, as_of=as_of_d, today=today_d, lookback_months=cda_months
-            )
 
     log.info("ingest.done", as_of=as_of_d.isoformat())
 
@@ -97,7 +87,7 @@ def ingest(
 def build(
     as_of: str = typer.Option(..., "--as-of"),
 ) -> None:
-    """Build silver + gold layers (typed parquet, master/feeder graph, metrics)."""
+    """Build silver + gold layers (typed parquet, metrics)."""
     configure_logging()
     log = get_logger("fund_rank.cli.build")
     settings = get_settings()

@@ -30,8 +30,6 @@ Class-level dimension. One row per `cnpj_classe`.
 | `cnpj_gestor` | str (14 digits) | `registro_fundo.csv#CPF_CNPJ_Gestor` | |
 | `taxa_adm_pct` | float | `cad_fi.csv#TAXA_ADM` (avg over fundo) | a.a. % |
 | `taxa_perfm_text` | str | `cad_fi.csv#TAXA_PERFM` | text — parser is in backlog |
-| `cnpj_master` | str (14 digits) | derived from `cda BLC_2` | null if not feeder |
-| `master_share` | float | derived from `cda BLC_2` | ≥ 0.95 when populated |
 
 ### `silver/quota_series/as_of=YYYY-MM-DD/data.parquet`
 Daily quota observations for every series.
@@ -77,7 +75,7 @@ Selected fields:
 | `taxa_adm_pct_aa` | float | from CAD; not used in past returns |
 | `pl_mediano_12m`, `cotistas` | float, int | liquidity proxy |
 | `retorno_covid_2020`, `retorno_marola_credito_2024` | float | event windows |
-| `history_source` | str | `own` / `stitched_cvm175` / `master` / `master+stitched_cvm175` |
+| `history_source` | str | `own` / `stitched_cvm175` |
 | `history_confidence` | str | `HIGH` (≥756 du) / `MED` (≥504 du) / `LOW` (≥252 du) |
 
 ### `gold/ranking/as_of=YYYY-MM-DD/segment=*/data.parquet`

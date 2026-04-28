@@ -66,16 +66,6 @@ def inf_diario_hist_url(settings: Settings, year: int) -> CvmEndpoint | None:
     )
 
 
-def cda_url(settings: Settings, year: int, month: int) -> CvmEndpoint:
-    yyyymm = f"{year:04d}{month:02d}"
-    template = settings.pipeline.sources.cvm_cda.url_template or ""
-    return CvmEndpoint(
-        name="cvm_cda",
-        url=template.format(yyyymm=yyyymm),
-        competence=f"{year:04d}-{month:02d}",
-    )
-
-
 def months_between(start: date, end: date) -> list[tuple[int, int]]:
     """Return list of (year, month) inclusive between two dates."""
     out: list[tuple[int, int]] = []

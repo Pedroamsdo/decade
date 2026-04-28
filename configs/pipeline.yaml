@@ -17,9 +17,6 @@ sources:
   cvm_inf_diario_hist:
     url_template: https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/HIST/inf_diario_fi_{yyyy}.zip
     extension: zip
-  cvm_cda:
-    url_template: https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS/cda_fi_{yyyymm}.zip
-    extension: zip
   bcb_cdi:
     # SGS série 12 = CDI diário em %
     url_template: https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial={dt_ini}&dataFinal={dt_fim}
@@ -37,5 +34,4 @@ ingest:
   # anos mais antigos caem no HIST yearly (1 zip por ano), tratado por fallback
   # automático em sources/cvm.py + bronze/ingest_inf_diario.py.
   inf_diario_lookback_months: 120
-  cda_lookback_months: 13
   cdi_lookback_years: 10

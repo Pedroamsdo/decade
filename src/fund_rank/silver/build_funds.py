@@ -4,13 +4,12 @@ Joins:
   - registro_classe.csv (post-CVM 175 source of truth for classe-level metadata)
   - registro_fundo.csv  (umbrella fund attributes + Data_Adaptacao_RCVM175)
   - cad_fi.csv          (taxa_adm, taxa_perfm text, fee schedules)
-  - cda_fi BLC_2        (master/feeder edges where ≥95% holdings in single target)
 
 Output schema (silver/funds/as_of=.../data.parquet):
   cnpj_classe, cnpj_fundo, denom_social, classe_anbima_raw, classe_anbima_norm,
   tipo_classe, situacao, condominio, exclusivo, publico_alvo, trib_lprazo,
-  taxa_adm_pct, taxa_perfm_text, dt_inicio, dt_adaptacao_175, cnpj_master,
-  master_share, cnpj_administrador, cnpj_gestor.
+  taxa_adm_pct, taxa_perfm_text, dt_inicio, dt_adaptacao_175,
+  cnpj_administrador, cnpj_gestor.
 """
 from __future__ import annotations
 
@@ -23,9 +22,6 @@ from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
 from fund_rank.silver._io import (
     all_partitions_for,
-    list_zip_members,
-    normalize_cnpj,
-    normalize_text,
     read_csv_from_path,
     read_csv_from_zip,
     silver_path,
@@ -86,103 +82,6 @@ def _read_cad_fi(settings: Settings) -> pl.DataFrame:
     df = read_csv_from_path(csv_path)
     log.info("silver.read_cad_fi", rows=len(df), cols=len(df.columns))
     return df
-
-
-def _detect_master_feeder(settings: Settings, threshold: float = 0.95) -> pl.DataFrame:
-    """Read CDA BLC_2 (Cotas de Fundos), aggregate per (cnpj_classe, cnpj_target),
-    and for each cnpj_classe pick the largest target. If its share >= threshold,
-    classify as feeder.
-
-    Returns: cnpj_classe, cnpj_master, master_share
-    """
-    parts = all_partitions_for(settings.bronze_root, "cvm_cda")
-    if not parts:
-        log.warning("silver.master_feeder.no_cda")
-        return pl.DataFrame(schema={
-            "cnpj_classe": pl.Utf8,
-            "cnpj_master": pl.Utf8,
-            "master_share": pl.Float64,
-        })
-
-    # Use the latest CDA partition only (master/feeder is slow-changing)
-    zip_path = parts[-1] / "raw.zip"
-    members = list_zip_members(zip_path)
-    blc2 = next((m for m in members if "BLC_2" in m), None)
-    pl_member = next((m for m in members if m.startswith("cda_fi_PL_")), None)
-    if not blc2 or not pl_member:
-        log.warning("silver.master_feeder.missing_blocks", members=members)
-        return pl.DataFrame(schema={
-            "cnpj_classe": pl.Utf8,
-            "cnpj_master": pl.Utf8,
-            "master_share": pl.Float64,
-        })
-
-    df_blc = read_csv_from_zip(zip_path, blc2)
-    df_pl = read_csv_from_zip(zip_path, pl_member)
-
-    # Filter to actual cotas-de-fundos rows
-    if "TP_APLIC" in df_blc.columns:
-        df_blc = df_blc.filter(pl.col("TP_APLIC").str.contains("Cotas de Fundos", literal=False))
-    if df_blc.height == 0:
-        log.warning("silver.master_feeder.no_cotas_de_fundos_rows")
-        return pl.DataFrame(schema={
-            "cnpj_classe": pl.Utf8,
-            "cnpj_master": pl.Utf8,
-            "master_share": pl.Float64,
-        })
-
-    # Pick CNPJ identification columns. Post-CVM 175 uses CNPJ_FUNDO_CLASSE.
-    src_col = "CNPJ_FUNDO_CLASSE" if "CNPJ_FUNDO_CLASSE" in df_blc.columns else "CNPJ_FUNDO"
-    # Target column varies; CVM exports often use CNPJ_FUNDO_COTA or EMISSOR-related; fall back via VL_MERC_POS_FINAL aggregation.
-    tgt_candidates = [c for c in ["CNPJ_FUNDO_COTA", "CNPJ_FUNDO_CLASSE_COTA", "CNPJ_EMISSOR"] if c in df_blc.columns]
-    if not tgt_candidates:
-        log.warning("silver.master_feeder.no_target_cnpj", cols=df_blc.columns)
-        return pl.DataFrame(schema={
-            "cnpj_classe": pl.Utf8,
-            "cnpj_master": pl.Utf8,
-            "master_share": pl.Float64,
-        })
-    tgt_col = tgt_candidates[0]
-
-    df_holdings = (
-        df_blc.select(
-            pl.col(src_col).alias("cnpj_classe_raw"),
-            pl.col(tgt_col).alias("cnpj_master_raw"),
-            pl.col("VL_MERC_POS_FINAL").cast(pl.Float64, strict=False).alias("vl_merc"),
-        )
-        .with_columns(
-            _cnpj_clean_expr("cnpj_classe_raw").alias("cnpj_classe"),
-            _cnpj_clean_expr("cnpj_master_raw").alias("cnpj_master"),
-        )
-        .filter(pl.col("cnpj_classe") != pl.col("cnpj_master"))
-        .group_by(["cnpj_classe", "cnpj_master"])
-        .agg(pl.col("vl_merc").sum())
-    )
-
-    # Total per source
-    df_total = (
-        df_blc.select(
-            pl.col(src_col).alias("cnpj_classe_raw"),
-            pl.col("VL_MERC_POS_FINAL").cast(pl.Float64, strict=False).alias("vl_merc"),
-        )
-        .with_columns(_cnpj_clean_expr("cnpj_classe_raw").alias("cnpj_classe"))
-        .group_by("cnpj_classe")
-        .agg(pl.col("vl_merc").sum().alias("vl_merc_total"))
-    )
-
-    df_top = (
-        df_holdings.join(df_total, on="cnpj_classe", how="left")
-        .with_columns(
-            (pl.col("vl_merc") / pl.col("vl_merc_total")).alias("master_share")
-        )
-        .sort(["cnpj_classe", "master_share"], descending=[False, True])
-        .group_by("cnpj_classe", maintain_order=True)
-        .head(1)
-        .filter(pl.col("master_share") >= threshold)
-        .select("cnpj_classe", "cnpj_master", "master_share")
-    )
-    log.info("silver.master_feeder.detected", feeders=len(df_top))
-    return df_top
 
 
 def run(settings: Settings, as_of: date) -> Path:
@@ -248,10 +147,6 @@ def run(settings: Settings, as_of: date) -> Path:
     )
 
     funds = funds.join(cad_fees, on="cnpj_fundo", how="left")
-
-    # --- Master/feeder ---
-    mf = _detect_master_feeder(settings)
-    funds = funds.join(mf, on="cnpj_classe", how="left")
 
     # Dedupe on cnpj_classe — registro_classe occasionally has multiple rows
     # per class across history snapshots; we keep the most recent by dt_inicio_classe.

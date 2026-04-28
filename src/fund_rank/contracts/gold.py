@@ -27,7 +27,6 @@ class FundMetrics(BaseModel):
     # Identity
     cnpj_classe: str = Field(..., description="Class CNPJ (post-CVM 175). Ranking unit.")
     cnpj_fundo: str = Field(..., description="Umbrella fund CNPJ.")
-    cnpj_master: str | None = Field(default=None, description="Master fund CNPJ if feeder.")
     denom_social: str
     classe_anbima: str | None = None
     tipo: str | None = None  # FI, FIC, FIDC, etc.
@@ -90,7 +89,7 @@ class FundMetrics(BaseModel):
     # Provenance
     history_source: str = Field(
         default="own",
-        description="One of: own, stitched_cvm175, master, master+stitched_cvm175",
+        description="One of: own, stitched_cvm175",
     )
     history_confidence: str | None = None  # HIGH | MED | LOW
     history_dias_uteis: int | None = None

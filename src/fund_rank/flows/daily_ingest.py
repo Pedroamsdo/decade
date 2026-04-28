@@ -19,7 +19,6 @@ from prefect.logging import get_run_logger
 
 from fund_rank.bronze import (
     ingest_cad_fi,
-    ingest_cda,
     ingest_cdi,
     ingest_inf_diario,
     ingest_registro_classe,
@@ -61,16 +60,6 @@ def t_inf_diario(
     return sum(1 for o in outs if o.status == "fetched")
 
 
-@task(retries=2, retry_delay_seconds=60)
-def t_cda(
-    settings: Settings, client: httpx.Client, as_of: date, today: date, lookback_months: int = 2
-) -> int:
-    outs = ingest_cda.run(
-        settings, client, as_of=as_of, today=today, lookback_months=lookback_months
-    )
-    return sum(1 for o in outs if o.status == "fetched")
-
-
 @flow(name="fund_rank.daily_ingest")
 def daily_ingest(as_of: date | None = None, today: date | None = None) -> dict[str, object]:
     """Run all bronze ingestors. Use today's date if not overridden."""
@@ -88,14 +77,12 @@ def daily_ingest(as_of: date | None = None, today: date | None = None) -> dict[s
         rc_status = t_registro_classe.submit(settings, client, today)
         cdi_status = t_cdi.submit(settings, client, as_of, today)
         inf_count = t_inf_diario.submit(settings, client, as_of, today)
-        cda_count = t_cda.submit(settings, client, as_of, today)
 
         result = {
             "cad_fi": cad_status.result(),
             "registro_classe": rc_status.result(),
             "bcb_cdi": cdi_status.result(),
             "inf_diario_fetched": inf_count.result(),
-            "cda_fetched": cda_count.result(),
         }
     log.info("daily_ingest.done %s", result)
     return result

@@ -30,9 +30,6 @@ filters_global:
   jump_detection_sigma: 5.0
   jump_detection_window_days: 60
 
-  # Master/feeder — threshold de holding em cotas de fundo único para identificar feeder
-  master_feeder_threshold: 0.95
-
 # Padrões de match: prefixos curtos que cobrem variantes da CVM ("Invest.", "Crédito Liv", etc.)
 # Critério é prefixo após normalização — o YAML pode usar acento, abreviação ou texto integral.
 

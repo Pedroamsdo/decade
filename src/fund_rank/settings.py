@@ -27,7 +27,6 @@ class _SourcesConfig(BaseModel):
     cvm_registro_classe: _SourceUrl
     cvm_inf_diario: _SourceUrl
     cvm_inf_diario_hist: _SourceUrl | None = None
-    cvm_cda: _SourceUrl
     bcb_cdi: _SourceUrl
 
 
@@ -41,7 +40,6 @@ class _HttpConfig(BaseModel):
 
 class _IngestConfig(BaseModel):
     inf_diario_lookback_months: int = 60
-    cda_lookback_months: int = 13
     cdi_lookback_years: int = 5
 
 

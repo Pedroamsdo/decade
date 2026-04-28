@@ -5,10 +5,10 @@
 ## Today (laptop)
 
 - ~30 k regulated classes in CVM, ~250 trading days/year, ~7 years history → ~50 M rows in `silver/quota_series` (~1 GB Parquet, zstd-compressed).
-- Each `INF_DIARIO` monthly zip is ~10 MB compressed; CDA monthly ~25 MB; CAD ~18 MB.
+- Each `INF_DIARIO` monthly zip is ~10 MB compressed; CAD ~18 MB.
 - Build (silver + gold + rank + report) over 7 years runs in **< 60 s** on an 8-core M-series Mac with 16 GB RAM.
 - Bronze partitioning is additive: re-runs that hit a `304 Not Modified` write nothing.
-- The full ingest of 7 years (84 monthly INF_DIARIO + 2 yearly HIST + CAD + CDI + CDA dec/2025) downloads ~700 MB and finishes in ~5 minutes (network-bound).
+- The full ingest of 7 years (84 monthly INF_DIARIO + 2 yearly HIST + CAD + CDI) downloads ~700 MB and finishes in ~5 minutes (network-bound).
 
 This is the default `make all AS_OF=2025-12-31` flow. No external dependencies beyond Python 3.9 + venv.
 
@@ -26,7 +26,7 @@ The code does **not** change: `fsspec` abstracts the filesystem, and Polars / Du
 
 The Prefect flows live in `src/fund_rank/flows/`:
 
-- `daily_ingest` — cron `0 6 * * 1-5 BRT`. Tasks: download CAD, registro_classe, CDI, INF_DIARIO (current month + M-1 for late corrections), CDA monthly. Each is idempotent (etag/sha256 check).
+- `daily_ingest` — cron `0 6 * * 1-5 BRT`. Tasks: download CAD, registro_classe, CDI, INF_DIARIO (current month + M-1 for late corrections). Each is idempotent (etag/sha256 check).
 - `weekly_rank` — cron `0 7 * * 1 BRT`. Computes `as_of = last completed business-day end-of-month`, runs silver → gold → rank → report. Output published to `gold/` and `reports/` partitions.
 - `backfill` — manual entry point that accepts `--from / --to` to reprocess gold from immutable bronze.
 
@@ -55,7 +55,6 @@ The contracts in `src/fund_rank/contracts/gold.py` (`FundMetrics`, `RankingEntry
 ## What does not scale
 
 - The CVM Dados Abertos web endpoint: rate-limit unknown, ~3 s per file. Parallelizing downloads helps but watch for 5xx.
-- The CDA `BLC_2_YYYYMM.csv` file: ~30 MB after 2024, growing ~5 % yearly with universe growth.
 - Pre-CVM 175 stitch: only as good as `registro_fundo_classe.zip` predecessor mapping. Multi-class umbrellas will always lose pre-2023 history under our policy (ADR-004) — no scaling fix.
 
 ## What we do *not* do today

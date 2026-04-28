@@ -24,16 +24,6 @@ def test_inf_diario_monthly_url():
     assert ep.competence == "2025-12"
 
 
-def test_cda_monthly_url():
-    from fund_rank.settings import Settings
-    from fund_rank.sources.cvm import cda_url
-
-    s = Settings()
-    ep = cda_url(s, 2025, 12)
-    assert ep.url.endswith("cda_fi_202512.zip")
-    assert ep.competence == "2025-12"
-
-
 def test_months_between():
     from fund_rank.sources.cvm import months_between
 
