@@ -18,7 +18,22 @@ sources:
     # SGS série 12 = CDI diário em %
     url_template: https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial={dt_ini}&dataFinal={dt_fim}
     extension: json
-
+  bcb_selic:
+    # SGS série 11 = SELIC diária em %
+    url_template: https://api.bcb.gov.br/dados/serie/bcdata.sgs.11/dados?formato=json&dataInicial={dt_ini}&dataFinal={dt_fim}
+    extension: json
+  bcb_ipca:
+    # SGS série 433 = IPCA mensal em %
+    url_template: https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados?formato=json&dataInicial={dt_ini}&dataFinal={dt_fim}
+    extension: json
+  bcb_inpc:
+    # SGS série 188 = INPC mensal em %
+    url_template: https://api.bcb.gov.br/dados/serie/bcdata.sgs.188/dados?formato=json&dataInicial={dt_ini}&dataFinal={dt_fim}
+    extension: json
+  bcb_igpm:
+    # SGS série 189 = IGP-M mensal em %
+    url_template: https://api.bcb.gov.br/dados/serie/bcdata.sgs.189/dados?formato=json&dataInicial={dt_ini}&dataFinal={dt_fim}
+    extension: json
 http:
   timeout_seconds: 180
   max_retries: 5
@@ -31,4 +46,6 @@ ingest:
   # anos mais antigos caem no HIST yearly (1 zip por ano), tratado por fallback
   # automático em sources/cvm.py + bronze/ingest_inf_diario.py.
   inf_diario_lookback_months: 360
-  cdi_lookback_years: 10
+  # Cobre quota_series (2000-01-03 → as_of). BCB SGS limita ~10y por request
+  # → ingest_bcb_indices.py chunka em 3 janelas de até 10 anos.
+  index_series_lookback_years: 26
