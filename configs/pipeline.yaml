@@ -33,5 +33,5 @@ ingest:
   # Janela histórica completa: 10 anos. CVM publica monthly por ~24 meses;
   # anos mais antigos caem no HIST yearly (1 zip por ano), tratado por fallback
   # automático em sources/cvm.py + bronze/ingest_inf_diario.py.
-  inf_diario_lookback_months: 120
+  inf_diario_lookback_months: 360
   cdi_lookback_years: 10

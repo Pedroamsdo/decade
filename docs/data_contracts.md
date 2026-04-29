@@ -64,6 +64,22 @@ Subset of `class_funds` with `classificacao_anbima` starting with `"Renda Fixa"`
 ### `silver/subclass_funds_fixed_income/as_of=YYYY-MM-DD/data.parquet`
 Subset of `subclass_funds` with `classificacao_anbima` starting with `"Renda Fixa"`. Same 17-column schema.
 
+### `silver/quota_series/as_of=YYYY-MM-DD/data.parquet`
+Daily quota observations from CVM `INF_DIARIO`, unifying pre- and post-CVM 175 schemas into one canonical lowercase shape. Sourced from `cvm_inf_diario` (monthly post-175) + `cvm_inf_diario_hist` (yearly pre-175). 1 row per `(cnpj_fundo_classe, id_subclasse, dt_comptc)`.
+
+| column | type | post-CVM 175 | pre-CVM 175 |
+|---|---|---|---|
+| `tp_fundo_classe` | str | `TP_FUNDO_CLASSE` | null (não existe na fonte) |
+| `cnpj_fundo_classe` | str (14 digits) | `CNPJ_FUNDO_CLASSE`, zfill | `CNPJ_FUNDO`, zfill |
+| `id_subclasse` | str | `ID_SUBCLASSE` (often null) | null (não existe na fonte) |
+| `dt_comptc` | date | `DT_COMPTC` | `DT_COMPTC` |
+| `vl_total` | float64 | `VL_TOTAL` | `VL_TOTAL` |
+| `vl_quota` | float64 | `VL_QUOTA` | `VL_QUOTA` |
+| `vl_patrim_liq` | float64 | `VL_PATRIM_LIQ` | `VL_PATRIM_LIQ` |
+| `captc_dia` | float64 | `CAPTC_DIA` | `CAPTC_DIA` |
+| `resg_dia` | float64 | `RESG_DIA` | `RESG_DIA` |
+| `nr_cotst` | int64 | `NR_COTST` | `NR_COTST` |
+
 ## Gold layer
 
 To be designed. The legacy gold/rank/report chain (built around the now-removed `silver/funds`/`quota_series`/`universe` tables) was retired; the new gold layer will be wired on top of `class_funds` + `subclass_funds`.
