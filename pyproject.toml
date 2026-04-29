@@ -7,6 +7,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "polars>=1.18.0",
+    "fastexcel>=0.12.0",
     "duckdb>=1.1.0",
     "pyarrow>=18.0.0",
     "pydantic>=2.9.0",

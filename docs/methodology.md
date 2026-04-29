@@ -79,9 +79,7 @@ Why z-scores intra-segment, not raw values? Because metrics like `tracking_error
 
 ## 5. Output contracts
 
-`gold.fund_metrics` and `gold.RankingEntry` are versioned via `CONTRACT_VERSION = "1.0.0"` in `src/fund_rank/contracts/gold.py`. Schema changes require a major bump and a JSON-Schema export.
-
-The case deliverable, `ranking.md`, is rendered from `gold/ranking/as_of=YYYY-MM-DD/segment=*/data.parquet`. A copy is pinned at the repo root as `ranking.md`; the historical-by-date copy lives at `reports/as_of=YYYY-MM-DD/ranking.md` so reruns don't clobber prior outputs.
+The legacy `gold.fund_metrics` / `gold.RankingEntry` chain was retired; the new gold layer (metrics + ranking) will be wired on top of `silver/class_funds` + `silver/subclass_funds`.
 
 ## 6. Known limitations (v1)
 

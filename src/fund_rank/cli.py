@@ -1,4 +1,4 @@
-"""fund_rank CLI — ingest | build | rank | report.
+"""fund_rank CLI — ingest | build.
 
 Each subcommand accepts --as-of=YYYY-MM-DD; pipelines are deterministic
 for a given as_of (idempotent, replay-safe).
@@ -54,7 +54,9 @@ def ingest(
     today_d = _parse_as_of(today) if today else date.today()
 
     from fund_rank.bronze import (
+        ingest_anbima_175,
         ingest_cad_fi,
+        ingest_cad_fi_hist,
         ingest_cdi,
         ingest_inf_diario,
         ingest_registro_classe,
@@ -69,6 +71,8 @@ def ingest(
     ) as client:
         if "cvm_cad_fi" not in skip:
             ingest_cad_fi.run(settings, client, today=today_d)
+        if "cvm_cad_fi_hist" not in skip:
+            ingest_cad_fi_hist.run(settings, client, today=today_d)
         if "cvm_registro_classe" not in skip:
             ingest_registro_classe.run(settings, client, today=today_d)
         if "bcb_cdi" not in skip:
@@ -80,6 +84,9 @@ def ingest(
                 settings, client, as_of=as_of_d, today=today_d, lookback_months=inf_diario_months
             )
 
+    if "anbima_175" not in skip:
+        ingest_anbima_175.run(settings, today=today_d)
+
     log.info("ingest.done", as_of=as_of_d.isoformat())
 
 
@@ -87,53 +94,25 @@ def ingest(
 def build(
     as_of: str = typer.Option(..., "--as-of"),
 ) -> None:
-    """Build silver + gold layers (typed parquet, metrics)."""
+    """Build silver layer: class_funds + subclass_funds (+ RF subsets)."""
     configure_logging()
     log = get_logger("fund_rank.cli.build")
     settings = get_settings()
     as_of_d = _parse_as_of(as_of)
 
-    from fund_rank.gold import compute_metrics
-    from fund_rank.silver import build_funds, build_quota_series, build_universe
+    from fund_rank.silver import (
+        build_class_funds,
+        build_class_funds_fixed_income,
+        build_subclass_funds,
+        build_subclass_funds_fixed_income,
+    )
 
     log.info("build.start", as_of=as_of_d.isoformat())
-    build_funds.run(settings, as_of_d)
-    build_quota_series.run(settings, as_of_d)
-    build_universe.run(settings, as_of_d)
-    compute_metrics.run(settings, as_of_d)
+    build_class_funds.run(settings, as_of_d)
+    build_subclass_funds.run(settings, as_of_d)
+    build_class_funds_fixed_income.run(settings, as_of_d)
+    build_subclass_funds_fixed_income.run(settings, as_of_d)
     log.info("build.done", as_of=as_of_d.isoformat())
-
-
-@app.command()
-def rank(
-    as_of: str = typer.Option(..., "--as-of"),
-) -> None:
-    """Compute rankings into gold/ranking/."""
-    configure_logging()
-    log = get_logger("fund_rank.cli.rank")
-    settings = get_settings()
-    as_of_d = _parse_as_of(as_of)
-
-    from fund_rank.rank import score
-
-    score.run(settings, as_of_d)
-    log.info("rank.done", as_of=as_of_d.isoformat())
-
-
-@app.command()
-def report(
-    as_of: str = typer.Option(..., "--as-of"),
-) -> None:
-    """Render reports/as_of=.../ranking.md."""
-    configure_logging()
-    log = get_logger("fund_rank.cli.report")
-    settings = get_settings()
-    as_of_d = _parse_as_of(as_of)
-
-    from fund_rank.rank import report as rank_report
-
-    rank_report.run(settings, as_of_d)
-    log.info("report.done", as_of=as_of_d.isoformat())
 
 
 if __name__ == "__main__":

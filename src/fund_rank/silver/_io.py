@@ -135,6 +135,33 @@ def normalize_cnpj(cnpj: str | None) -> str | None:
     return digits.zfill(14)[:14]
 
 
+# ---- Polars expressions ------------------------------------------------------
+
+
+def cnpj_clean_expr(col: str, alias: str | None = None) -> pl.Expr:
+    """Polars expr: strip non-digits, zfill 14. Vectorized CNPJ normalization."""
+    return (
+        pl.col(col)
+        .str.replace_all(r"\D", "")
+        .str.pad_start(14, "0")
+        .str.slice(0, 14)
+        .alias(alias or col)
+    )
+
+
+def normalize_text_expr(col: str, alias: str) -> pl.Expr:
+    """Polars expr: NFKD strip-accents + lowercase + collapse whitespace."""
+    return (
+        pl.col(col)
+        .str.normalize("NFKD")
+        .str.replace_all(r"[̀-ͯ]", "")
+        .str.replace_all(r"\s+", " ")
+        .str.strip_chars()
+        .str.to_lowercase()
+        .alias(alias)
+    )
+
+
 # ---- Parquet output ----------------------------------------------------------
 
 
