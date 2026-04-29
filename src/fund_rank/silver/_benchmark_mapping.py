@@ -1,8 +1,8 @@
 """Canonical mapping of CVM `cad_fi_rentab.csv#RENTAB_FUNDO` strings to short codes.
 
-Used by `build_class_funds_fixed_income` and `build_subclass_funds_fixed_income`
-to reduce the 18 raw benchmark strings down to 10 canonical codes the gold
-ranking layer can branch on.
+Used by `build_class_funds_fixed_income_treated` and
+`build_subclass_funds_fixed_income_treated` to reduce the 18 raw benchmark
+strings down to 10 canonical codes the gold ranking layer can branch on.
 
 `Não se aplica`, `OUTROS` and `Ibovespa` are intentionally folded into `CDI`
 per product spec — fundos RF que declaram benchmark vazio/incoerente são

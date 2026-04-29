@@ -1,12 +1,13 @@
-"""silver/class_funds_fixed_income — RF subset of class_funds (filter-only).
+"""silver/class_funds_fixed_income_treated — treated RF subset of class_funds.
 
-Filters class_funds to rows whose `classificacao_anbima` starts with
-"Renda Fixa". Excludes Previdência RF (different ANBIMA category).
+Reads `silver/class_funds_fixed_income` (filter-only RF subset) and applies:
 
-This stage is **filter-only**: nulls and outliers in `taxa_adm`,
-`taxa_perform` and the raw CVM `benchmark` strings are preserved for
-auditability. Benchmark mapping and taxa imputation live in
-`build_class_funds_fixed_income_treated`.
+  - Benchmark mapping (CVM raw strings → 10 canonical codes; nulls → "CDI").
+  - Mode-based imputation of `taxa_adm` and `taxa_perform` (also replaces
+    |z|>3 outliers). Stats are computed on this same RF-filtered class table.
+
+Writes a quality report alongside the parquet so reviewers can see post-
+treatment null/duplicate counts.
 """
 from __future__ import annotations
 
@@ -17,11 +18,11 @@ import polars as pl
 
 from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
+from fund_rank.silver._benchmark_mapping import apply_benchmark_mapping
 from fund_rank.silver._io import silver_path, write_parquet
+from fund_rank.silver._taxa_imputation import apply_taxa_imputation, compute_taxa_stats
 
 log = get_logger(__name__)
-
-RF_PREFIX = "Renda Fixa"
 
 OUTPUT_COLUMNS: list[str] = [
     "cnpj_fundo",
@@ -51,7 +52,7 @@ def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> 
 
     lines: list[str] = []
     lines.append(
-        f"# class_funds_fixed_income — quality report (as_of={as_of.isoformat()})\n"
+        f"# class_funds_fixed_income_treated — quality report (as_of={as_of.isoformat()})\n"
     )
     lines.append(f"- Rows: **{rows:,}**")
     lines.append(f"- Distinct cnpj_classe: **{distinct:,}**")
@@ -86,12 +87,12 @@ def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> 
     out = (
         settings.pipeline.reports_root
         / f"as_of={as_of.isoformat()}"
-        / "class_funds_fixed_income_quality.md"
+        / "class_funds_fixed_income_treated_quality.md"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines))
     log.info(
-        "silver.class_funds_fixed_income.quality_report",
+        "silver.class_funds_fixed_income_treated.quality_report",
         path=str(out),
         rows=rows,
         duplicates=dups,
@@ -100,33 +101,38 @@ def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> 
 
 
 def run(settings: Settings, as_of: date) -> Path:
-    in_path = silver_path(settings, "class_funds", as_of.isoformat())
+    in_path = silver_path(settings, "class_funds_fixed_income", as_of.isoformat())
     if not in_path.exists():
         raise FileNotFoundError(
-            f"silver/class_funds not found at {in_path}; run build_class_funds first."
+            f"silver/class_funds_fixed_income not found at {in_path}; "
+            "run build_class_funds_fixed_income first."
         )
 
     df = pl.read_parquet(in_path)
-    before = df.height
-    df_rf = df.filter(
-        pl.col("classificacao_anbima")
-        .cast(pl.Utf8, strict=False)
-        .str.starts_with(RF_PREFIX)
-    )
+
+    df = apply_benchmark_mapping(df)
+
+    stats_adm = compute_taxa_stats(df, "taxa_adm")
+    stats_perf = compute_taxa_stats(df, "taxa_perform")
+    df = apply_taxa_imputation(df, "taxa_adm", stats_adm)
+    df = apply_taxa_imputation(df, "taxa_perform", stats_perf)
     log.info(
-        "silver.class_funds_fixed_income.filtered",
-        before=before,
-        after=df_rf.height,
-        excluded=before - df_rf.height,
+        "silver.class_funds_fixed_income_treated.imputed",
+        taxa_adm_mode=stats_adm.mode,
+        taxa_adm_bounds=(stats_adm.lo, stats_adm.hi),
+        taxa_perform_mode=stats_perf.mode,
+        taxa_perform_bounds=(stats_perf.lo, stats_perf.hi),
     )
 
-    out_path = silver_path(settings, "class_funds_fixed_income", as_of.isoformat())
-    write_parquet(df_rf, out_path)
+    out_path = silver_path(
+        settings, "class_funds_fixed_income_treated", as_of.isoformat()
+    )
+    write_parquet(df, out_path)
     log.info(
-        "silver.class_funds_fixed_income.written",
+        "silver.class_funds_fixed_income_treated.written",
         path=str(out_path),
-        rows=df_rf.height,
+        rows=df.height,
     )
 
-    _write_quality_report(df_rf, as_of, settings)
+    _write_quality_report(df, as_of, settings)
     return out_path

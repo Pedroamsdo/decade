@@ -59,10 +59,23 @@ ANBIMA two-pass join: pass 1 by `id_subclasse_cvm` ↔ `Código CVM Subclasse` (
 Quality report at `reports/as_of=YYYY-MM-DD/subclass_funds_quality.md` (nulls + duplicates + ANBIMA pass breakdown).
 
 ### `silver/class_funds_fixed_income/as_of=YYYY-MM-DD/data.parquet`
-Subset of `class_funds` with `classificacao_anbima` starting with `"Renda Fixa"`. Same 17-column schema.
+**Filter-only** RF subset of `class_funds`: rows with `classificacao_anbima` starting with `"Renda Fixa"`. Same 17-column schema. Nulls and outliers in `taxa_adm`, `taxa_perform` and the raw CVM `benchmark` strings are preserved for auditability — treatment lives in the `_treated` table below. Quality report at `reports/as_of=YYYY-MM-DD/class_funds_fixed_income_quality.md`.
 
 ### `silver/subclass_funds_fixed_income/as_of=YYYY-MM-DD/data.parquet`
-Subset of `subclass_funds` with `classificacao_anbima` starting with `"Renda Fixa"`. Same 17-column schema.
+**Filter-only** RF subset of `subclass_funds`. Same 17-column schema, same auditability guarantees as the class table. Quality report at `reports/as_of=YYYY-MM-DD/subclass_funds_fixed_income_quality.md`.
+
+### `silver/class_funds_fixed_income_treated/as_of=YYYY-MM-DD/data.parquet`
+Treated version of `class_funds_fixed_income` (same 17-column schema). Two transformations applied:
+
+- **Benchmark mapping.** Raw CVM `RENTAB_FUNDO` strings → 10 canonical codes (`CDI`, `IPCA`, `INPC`, `IGP-M`, `IMA-B`, `IMA-B 5`, `IMA-B 5+`, `IMA-GERAL`, `IMA-S`, `IRF-M`). Nulls and unmapped strings collapse to `"CDI"` (the RF default per spec).
+- **Taxa imputation.** `taxa_adm` and `taxa_perform`: nulls **and** outliers (|z|>3 against the non-null subset) are replaced with the column **mode**. Stats are computed on this same RF-filtered class table.
+
+Quality report at `reports/as_of=YYYY-MM-DD/class_funds_fixed_income_treated_quality.md` — `taxa_adm`, `taxa_perform` and `benchmark` should have null counts of zero.
+
+### `silver/subclass_funds_fixed_income_treated/as_of=YYYY-MM-DD/data.parquet`
+Treated version of `subclass_funds_fixed_income` (same 17-column schema). Same benchmark mapping rule as the class table. Taxa imputation also follows the same mode/3σ rule, but **stats are sourced from `silver/class_funds_fixed_income`** (the raw RF class table, pre-imputation) — so subclass and class share the same canonical imputation distribution.
+
+Quality report at `reports/as_of=YYYY-MM-DD/subclass_funds_fixed_income_treated_quality.md`.
 
 ### `silver/quota_series/as_of=YYYY-MM-DD/data.parquet`
 Daily quota observations from CVM `INF_DIARIO`, unifying pre- and post-CVM 175 schemas into one canonical lowercase shape. Sourced from `cvm_inf_diario` (monthly post-175) + `cvm_inf_diario_hist` (yearly pre-175). 1 row per `(cnpj_fundo_classe, id_subclasse, dt_comptc)`.
