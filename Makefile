@@ -8,7 +8,7 @@ help:
 	@echo "Targets:"
 	@echo "  setup           Create .venv and install package + dev deps"
 	@echo "  ingest          Run bronze ingestion (idempotent, etag-aware)"
-	@echo "  build           silver layer (class_funds + subclass_funds + RF subsets)"
+	@echo "  build           silver layer (class_funds + subclass_funds + RF subsets + quota_series)"
 	@echo "  all             ingest + build"
 	@echo "  test            pytest"
 	@echo "  lint            ruff check"

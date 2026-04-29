@@ -103,6 +103,7 @@ def build(
     from fund_rank.silver import (
         build_class_funds,
         build_class_funds_fixed_income,
+        build_quota_series,
         build_subclass_funds,
         build_subclass_funds_fixed_income,
     )
@@ -112,6 +113,7 @@ def build(
     build_subclass_funds.run(settings, as_of_d)
     build_class_funds_fixed_income.run(settings, as_of_d)
     build_subclass_funds_fixed_income.run(settings, as_of_d)
+    build_quota_series.run(settings, as_of_d)
     log.info("build.done", as_of=as_of_d.isoformat())
 
 
