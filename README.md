@@ -80,10 +80,7 @@ See [docs/methodology.md](docs/methodology.md) for the metric definitions and pe
 
 | Source | URL | Granularity |
 |---|---|---|
-| CVM CAD | `https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv` | snapshot, T+1 |
-| CVM CAD hist taxa_adm | `https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi_hist_taxa_adm.csv` | hist por CNPJ_Fundo |
-| CVM CAD hist taxa_perfm | `https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi_hist_taxa_perfm.csv` | hist por CNPJ_Fundo |
-| CVM CAD rentab | `https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi_rentab.csv` | hist por CNPJ_Fundo |
+| CVM CAD hist | `https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi_hist.zip` | zip com `cad_fi_hist_taxa_adm.csv`, `cad_fi_hist_taxa_perfm.csv`, `cad_fi_hist_rentab.csv` (e outros) |
 | CVM Registro Classe | `https://dados.cvm.gov.br/dados/FI/CAD/DADOS/registro_fundo_classe.zip` | snapshot, T+1 |
 | CVM INF_DIARIO | `https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_YYYYMM.zip` | daily (zip mensal), T+1 |
 | ANBIMA Fundos 175 | `https://data.anbima.com.br/datasets/fundos-175-caracteristicas-publico/detalhes` (xlsx, drop manual em `data/bronze/anbima_175/dropped/`) | snapshot |

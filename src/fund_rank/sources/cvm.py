@@ -17,14 +17,6 @@ class CvmEndpoint:
     competence: str | None  # "YYYY-MM" for monthly, None for snapshots
 
 
-def cad_fi_url(settings: Settings) -> CvmEndpoint:
-    return CvmEndpoint(
-        name="cvm_cad_fi",
-        url=settings.pipeline.sources.cvm_cad_fi.url or "",
-        competence=None,
-    )
-
-
 def cad_fi_hist_url(settings: Settings) -> CvmEndpoint:
     return CvmEndpoint(
         name="cvm_cad_fi_hist",

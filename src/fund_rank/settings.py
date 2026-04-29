@@ -22,7 +22,6 @@ class _SourceUrl(BaseModel):
 
 
 class _SourcesConfig(BaseModel):
-    cvm_cad_fi: _SourceUrl
     cvm_cad_fi_hist: _SourceUrl
     cvm_registro_classe: _SourceUrl
     cvm_inf_diario: _SourceUrl

@@ -2,9 +2,6 @@ data_root: data
 reports_root: reports
 
 sources:
-  cvm_cad_fi:
-    url: https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi.csv
-    extension: csv
   cvm_cad_fi_hist:
     url: https://dados.cvm.gov.br/dados/FI/CAD/DADOS/cad_fi_hist.zip
     extension: zip

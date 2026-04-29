@@ -18,19 +18,12 @@ from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from fund_rank.bronze import (
-    ingest_cad_fi,
     ingest_cdi,
     ingest_inf_diario,
     ingest_registro_classe,
 )
 from fund_rank.settings import Settings, get_settings
 from fund_rank.sources.http import make_client
-
-
-@task(retries=3, retry_delay_seconds=30)
-def t_cad_fi(settings: Settings, client: httpx.Client, today: date) -> str:
-    out = ingest_cad_fi.run(settings, client, today=today)
-    return out.status
 
 
 @task(retries=3, retry_delay_seconds=30)
@@ -73,13 +66,11 @@ def daily_ingest(as_of: date | None = None, today: date | None = None) -> dict[s
         timeout_seconds=settings.pipeline.http.timeout_seconds,
         user_agent=settings.pipeline.http.user_agent,
     ) as client:
-        cad_status = t_cad_fi.submit(settings, client, today)
         rc_status = t_registro_classe.submit(settings, client, today)
         cdi_status = t_cdi.submit(settings, client, as_of, today)
         inf_count = t_inf_diario.submit(settings, client, as_of, today)
 
         result = {
-            "cad_fi": cad_status.result(),
             "registro_classe": rc_status.result(),
             "bcb_cdi": cdi_status.result(),
             "inf_diario_fetched": inf_count.result(),

@@ -21,7 +21,7 @@ def test_settings_loads_pipeline_config():
     p = s.pipeline
     assert p.data_root == Path("data")
     assert p.reports_root == Path("reports")
-    assert p.sources.cvm_cad_fi.url and "cad_fi.csv" in p.sources.cvm_cad_fi.url
+    assert p.sources.cvm_cad_fi_hist.url and "cad_fi_hist.zip" in p.sources.cvm_cad_fi_hist.url
     assert p.sources.cvm_inf_diario.url_template and "{yyyymm}" in p.sources.cvm_inf_diario.url_template
     assert p.http.max_retries == 5
 

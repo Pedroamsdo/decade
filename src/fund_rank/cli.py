@@ -55,7 +55,6 @@ def ingest(
 
     from fund_rank.bronze import (
         ingest_anbima_175,
-        ingest_cad_fi,
         ingest_cad_fi_hist,
         ingest_cdi,
         ingest_inf_diario,
@@ -69,8 +68,6 @@ def ingest(
         timeout_seconds=settings.pipeline.http.timeout_seconds,
         user_agent=settings.pipeline.http.user_agent,
     ) as client:
-        if "cvm_cad_fi" not in skip:
-            ingest_cad_fi.run(settings, client, today=today_d)
         if "cvm_cad_fi_hist" not in skip:
             ingest_cad_fi_hist.run(settings, client, today=today_d)
         if "cvm_registro_classe" not in skip:
@@ -104,6 +101,7 @@ def build(
         build_class_funds,
         build_class_funds_fixed_income,
         build_quota_series,
+        build_quota_series_fixed_income,
         build_subclass_funds,
         build_subclass_funds_fixed_income,
     )
@@ -114,6 +112,7 @@ def build(
     build_class_funds_fixed_income.run(settings, as_of_d)
     build_subclass_funds_fixed_income.run(settings, as_of_d)
     build_quota_series.run(settings, as_of_d)
+    build_quota_series_fixed_income.run(settings, as_of_d)
     log.info("build.done", as_of=as_of_d.isoformat())
 
 

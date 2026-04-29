@@ -112,7 +112,7 @@ ADRs for non-obvious choices in `fund_rank`. Each decision lists the alternative
 
 **Status:** accepted · 2026-04-25
 
-**Context.** Some sources are snapshots (`cad_fi.csv`), some are monthly (`inf_diario_fi_YYYYMM.zip`), some are dynamic ranges (`bcb_cdi` per query interval).
+**Context.** Some sources are snapshots (`cad_fi_hist.zip`, `registro_fundo_classe.zip`), some are monthly (`inf_diario_fi_YYYYMM.zip`), some are dynamic ranges (`bcb_cdi` per query interval).
 
 **Decision.** Universal partition scheme: `{source}/ingested_at={today}/[competence={key}/]raw.{ext}`. The optional `competence` partition is set when the source has a natural data period (month / year / range). A `_manifest.json` sidecar records `(url, etag, last_modified, sha256, byte_size, ingested_at, status)`.
 
