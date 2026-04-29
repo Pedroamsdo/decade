@@ -4,7 +4,7 @@
 
 ## Today (laptop)
 
-- ~30 k regulated classes in CVM, ~250 trading days/year, ~7 years history → ~50 M rows in `silver/quota_series` (~1 GB Parquet, zstd-compressed).
+- Silver dimension tables (`class_funds`, `subclass_funds` and their RF subsets) sit around 41 k rows total — under 50 MB Parquet zstd-compressed.
 - Each `INF_DIARIO` monthly zip is ~10 MB compressed; CAD ~18 MB.
 - Build (silver + gold + rank + report) over 7 years runs in **< 60 s** on an 8-core M-series Mac with 16 GB RAM.
 - Bronze partitioning is additive: re-runs that hit a `304 Not Modified` write nothing.

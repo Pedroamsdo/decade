@@ -70,7 +70,7 @@ ADRs for non-obvious choices in `fund_rank`. Each decision lists the alternative
 
 **Decision.** All transforms run in Polars (Python), with DuckDB for ad-hoc queries on the same Parquet files. `fsspec` abstracts the filesystem so swapping `data/` for `s3://` is configuration-only.
 
-**Alternative.** Spark/BigQuery from day 1. Rejected because the volume fits comfortably in a laptop's memory (`silver/quota_series.parquet` is < 1 GB for 7 years of history). Spark adds operational overhead with no win for v1.
+**Alternative.** Spark/BigQuery from day 1. Rejected because the volume fits comfortably in a laptop's memory (silver tables together are well under 1 GB Parquet). Spark adds operational overhead with no win for v1.
 
 **Migration path.** When daily ingestion or the universe grows 10×, swap local FS → S3 (no code change), run the same Prefect flows on a worker pool. At 100×, treat the Parquet partitions as external tables in BigQuery / Snowflake — the SQL doesn't change. Documented in [scaling.md](scaling.md).
 
@@ -94,7 +94,7 @@ ADRs for non-obvious choices in `fund_rank`. Each decision lists the alternative
 
 **Decision.** Both YAML patterns and CVM strings are normalized (`strip accents → lowercase → collapse whitespace`) and matched by *prefix*. So `"Renda Fixa Duração Baixa Grau de Invest"` in the YAML matches all of "Grau de Invest", "Grau de Invest.", and "Grau de Investimento" rows.
 
-**Trade-off.** Prefix match can over-include if a future ANBIMA category starts with the same words but means something different. Mitigated by reviewing the segment row counts in `silver/universe` after each ANBIMA update.
+**Trade-off.** Prefix match can over-include if a future ANBIMA category starts with the same words but means something different. Mitigated by reviewing the row counts in `silver/class_funds_fixed_income` and `silver/subclass_funds_fixed_income` after each ANBIMA refresh.
 
 ---
 
