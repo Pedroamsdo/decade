@@ -13,7 +13,9 @@ import polars as pl
 
 from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
+from fund_rank.silver._benchmark_mapping import apply_benchmark_mapping
 from fund_rank.silver._io import silver_path, write_parquet
+from fund_rank.silver._taxa_imputation import apply_taxa_imputation, compute_taxa_stats
 
 log = get_logger(__name__)
 
@@ -114,6 +116,34 @@ def run(settings: Settings, as_of: date) -> Path:
         before=before,
         after=df_rf.height,
         excluded=before - df_rf.height,
+    )
+
+    df_rf = apply_benchmark_mapping(df_rf)
+
+    # Impute taxa_adm and taxa_perform with mode (also replaces |z|>3 outliers).
+    # Stats sourced from class_funds RF-filtered (re-derived here from raw silver/class_funds
+    # to use pre-imputation distribution — the canonical reference per spec).
+    class_path = silver_path(settings, "class_funds", as_of.isoformat())
+    if not class_path.exists():
+        raise FileNotFoundError(
+            f"silver/class_funds not found at {class_path}; needed as taxa stats reference."
+        )
+    class_rf = pl.read_parquet(class_path).filter(
+        pl.col("classificacao_anbima")
+        .cast(pl.Utf8, strict=False)
+        .str.starts_with(RF_PREFIX)
+    )
+    stats_adm = compute_taxa_stats(class_rf, "taxa_adm")
+    stats_perf = compute_taxa_stats(class_rf, "taxa_perform")
+    df_rf = apply_taxa_imputation(df_rf, "taxa_adm", stats_adm)
+    df_rf = apply_taxa_imputation(df_rf, "taxa_perform", stats_perf)
+    log.info(
+        "silver.subclass_funds_fixed_income.imputed",
+        ref="class_funds_rf",
+        taxa_adm_mode=stats_adm.mode,
+        taxa_adm_bounds=(stats_adm.lo, stats_adm.hi),
+        taxa_perform_mode=stats_perf.mode,
+        taxa_perform_bounds=(stats_perf.lo, stats_perf.hi),
     )
 
     out_path = silver_path(settings, "subclass_funds_fixed_income", as_of.isoformat())
