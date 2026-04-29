@@ -1,19 +1,92 @@
-# v1: CDI como benchmark universal. IMA-B e IRF-M ficam no backlog v2 — feeds ANBIMA são pagos
-# e a segmentação do universo por duration mitiga o uso de um benchmark único.
+# Configuração canônica das séries da tabela `silver/index_series`.
+#
+# Usada por:
+#   - `silver/build_index_series.py` → granularity guia o threshold de cobertura
+#     (daily vs monthly têm critérios distintos no quality report)
+#   - `bronze/ingest_anbima_indices.py` → drop_filename mapeia o XLS dropado
+#     para sua coluna na tabela silver
+#
+# Campos:
+#   source         bcb_sgs | anbima_drop
+#   series_id      (BCB) código SGS
+#   drop_filename  (ANBIMA) nome do XLS esperado em data/bronze/anbima_indices/dropped/
+#   granularity    daily | monthly  → controla o threshold no quality report
+#   unit           percent_per_day | percent_per_month | index_level
+#   active         true se a série entra no ranking gold (v2 — só CDI por enquanto)
 
 cdi:
-  source: bcb_sgs_12
-  unit: percent_per_day      # SGS retorna % a.d.; convertido para fator (1 + r/100) no load
+  source: bcb_sgs
+  series_id: 12
+  granularity: daily
+  unit: percent_per_day
   active: true
 
-ima_b_5:
-  status: backlog_v2
+selic:
+  source: bcb_sgs
+  series_id: 11
+  granularity: daily
+  unit: percent_per_day
   active: false
 
-ima_b_5_plus:
-  status: backlog_v2
+ipca:
+  source: bcb_sgs
+  series_id: 433
+  granularity: monthly
+  unit: percent_per_month
+  active: false
+
+inpc:
+  source: bcb_sgs
+  series_id: 188
+  granularity: monthly
+  unit: percent_per_month
+  active: false
+
+igpm:
+  source: bcb_sgs
+  series_id: 189
+  granularity: monthly
+  unit: percent_per_month
+  active: false
+
+ima_b:
+  source: anbima_drop
+  drop_filename: IMAB-HISTORICO.xls
+  granularity: daily
+  unit: index_level
+  active: false
+
+ima_b_5:
+  source: anbima_drop
+  drop_filename: IMAB5-HISTORICO.xls
+  granularity: daily
+  unit: index_level
+  active: false
+
+ima_b_5plus:
+  source: anbima_drop
+  drop_filename: IMAB5MAIS-HISTORICO.xls
+  granularity: daily
+  unit: index_level
+  active: false
+
+ima_geral:
+  source: anbima_drop
+  drop_filename: IMAGERAL-HISTORICO.xls
+  granularity: daily
+  unit: index_level
+  active: false
+
+ima_s:
+  source: anbima_drop
+  drop_filename: IMAS-HISTORICO.xls
+  granularity: daily
+  unit: index_level
   active: false
 
 irf_m:
-  status: backlog_v2
+  source: anbima_drop
+  drop_filename: IRFM-HISTORICO.xls
+  granularity: daily
+  unit: index_level
   active: false

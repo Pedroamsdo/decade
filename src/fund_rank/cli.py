@@ -33,17 +33,18 @@ def ingest(
     skip: List[str] = typer.Option(
         [],
         "--skip",
-        help="Source names to skip (e.g. cvm_inf_diario, bcb_cdi).",
+        help="Source groups to skip (cvm_cad_fi_hist, cvm_registro_classe, "
+             "cvm_inf_diario, bcb_indices, anbima_indices, anbima_175).",
     ),
     inf_diario_months: Optional[int] = typer.Option(
         None,
         "--inf-diario-months",
         help="Override lookback for INF_DIARIO (default from configs/pipeline.yaml).",
     ),
-    cdi_years: Optional[int] = typer.Option(
+    index_years: Optional[int] = typer.Option(
         None,
-        "--cdi-years",
-        help="Override lookback for CDI.",
+        "--index-years",
+        help="Override lookback for index_series sources (BCB SGS).",
     ),
 ) -> None:
     """Run bronze-layer ingestion (idempotent, etag-aware)."""
@@ -55,8 +56,9 @@ def ingest(
 
     from fund_rank.bronze import (
         ingest_anbima_175,
+        ingest_anbima_indices,
+        ingest_bcb_indices,
         ingest_cad_fi_hist,
-        ingest_cdi,
         ingest_inf_diario,
         ingest_registro_classe,
     )
@@ -72,15 +74,17 @@ def ingest(
             ingest_cad_fi_hist.run(settings, client, today=today_d)
         if "cvm_registro_classe" not in skip:
             ingest_registro_classe.run(settings, client, today=today_d)
-        if "bcb_cdi" not in skip:
-            ingest_cdi.run(
-                settings, client, as_of=as_of_d, today=today_d, lookback_years=cdi_years
+        if "bcb_indices" not in skip:
+            ingest_bcb_indices.run(
+                settings, client, as_of=as_of_d, today=today_d, lookback_years=index_years
             )
         if "cvm_inf_diario" not in skip:
             ingest_inf_diario.run(
                 settings, client, as_of=as_of_d, today=today_d, lookback_months=inf_diario_months
             )
 
+    if "anbima_indices" not in skip:
+        ingest_anbima_indices.run(settings, today=today_d)
     if "anbima_175" not in skip:
         ingest_anbima_175.run(settings, today=today_d)
 
@@ -91,7 +95,7 @@ def ingest(
 def build(
     as_of: str = typer.Option(..., "--as-of"),
 ) -> None:
-    """Build silver layer: class_funds + subclass_funds (+ RF subsets)."""
+    """Build silver layer: class_funds + subclass_funds + quota_series + index_series (+ RF subsets)."""
     configure_logging()
     log = get_logger("fund_rank.cli.build")
     settings = get_settings()
@@ -100,6 +104,7 @@ def build(
     from fund_rank.silver import (
         build_class_funds,
         build_class_funds_fixed_income,
+        build_index_series,
         build_quota_series,
         build_quota_series_fixed_income,
         build_subclass_funds,
@@ -113,6 +118,7 @@ def build(
     build_subclass_funds_fixed_income.run(settings, as_of_d)
     build_quota_series.run(settings, as_of_d)
     build_quota_series_fixed_income.run(settings, as_of_d)
+    build_index_series.run(settings, as_of_d)
     log.info("build.done", as_of=as_of_d.isoformat())
 
 

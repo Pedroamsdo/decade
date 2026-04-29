@@ -33,10 +33,12 @@ def test_months_between():
 
 def test_cdi_url_format():
     from fund_rank.settings import Settings
-    from fund_rank.sources.bcb_sgs import cdi_url
+    from fund_rank.sources.bcb_sgs import sgs_url
 
     s = Settings()
-    ep = cdi_url(s, date(2020, 12, 31), date(2025, 12, 31))
+    ep = sgs_url(s, "bcb_cdi", 12, date(2020, 12, 31), date(2025, 12, 31))
     assert "bcdata.sgs.12" in ep.url
     assert "31/12/2020" in ep.url
     assert "31/12/2025" in ep.url
+    assert ep.name == "bcb_cdi"
+    assert ep.series_id == 12

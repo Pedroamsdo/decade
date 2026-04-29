@@ -27,6 +27,10 @@ class _SourcesConfig(BaseModel):
     cvm_inf_diario: _SourceUrl
     cvm_inf_diario_hist: _SourceUrl | None = None
     bcb_cdi: _SourceUrl
+    bcb_selic: _SourceUrl
+    bcb_ipca: _SourceUrl
+    bcb_inpc: _SourceUrl
+    bcb_igpm: _SourceUrl
 
 
 class _HttpConfig(BaseModel):
@@ -39,7 +43,7 @@ class _HttpConfig(BaseModel):
 
 class _IngestConfig(BaseModel):
     inf_diario_lookback_months: int = 60
-    cdi_lookback_years: int = 5
+    index_series_lookback_years: int = 26
 
 
 class PipelineConfig(BaseModel):
