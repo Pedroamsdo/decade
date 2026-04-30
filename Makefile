@@ -9,10 +9,11 @@ help:
 	@echo "  setup           Create .venv and install package + dev deps"
 	@echo "  ingest          Run bronze ingestion (idempotent, etag-aware)"
 	@echo "  build           silver layer (class_funds + subclass_funds + RF subsets + quota_series)"
-	@echo "  all             ingest + build"
+	@echo "  rank            gold layer (fund_metrics + ranking)"
+	@echo "  all             ingest + build + rank"
 	@echo "  test            pytest"
 	@echo "  lint            ruff check"
-	@echo "  clean           Remove silver/reports (preserves bronze cache)"
+	@echo "  clean           Remove silver/gold/reports (preserves bronze cache)"
 	@echo "  clean-all       Remove everything under data/ and reports/"
 	@echo ""
 	@echo "AS_OF defaults to 2025-12-31. Override: make all AS_OF=2024-12-31"
@@ -28,7 +29,10 @@ ingest:
 build:
 	$(PY) -m fund_rank.cli build --as-of $(AS_OF)
 
-all: ingest build
+rank:
+	$(PY) -m fund_rank.cli rank --as-of $(AS_OF)
+
+all: ingest build rank
 
 test:
 	$(PY) -m pytest
@@ -37,7 +41,7 @@ lint:
 	.venv/bin/ruff check src tests
 
 clean:
-	rm -rf data/silver reports
+	rm -rf data/silver data/gold reports
 
 clean-all: clean
 	rm -rf data/bronze

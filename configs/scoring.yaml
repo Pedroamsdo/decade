@@ -63,3 +63,25 @@ stress_events:
   - name: marola_credito_2024
     start: 2024-05-01
     end: 2024-07-31
+
+# Risk weights per ANBIMA RF classification, used by gold/build_fund_metrics.
+# Range 0 (lowest risk) to 1 (highest risk). Composed from duration risk
+# (Baixa<Média<Alta<Livre), credit risk (Soberano<Grau de Investimento<Crédito Livre)
+# and FX risk (Investimento no Exterior, Dívida Externa).
+classificacao_anbima_risk:
+  "Renda Fixa Simples":                            0.05
+  "Renda Fixa Duração Baixa Soberano":             0.10
+  "Renda Fixa Duração Baixa Grau de Investimento": 0.20
+  "Renda Fixa Duração Média Soberano":             0.25
+  "Renda Fixa Duração Baixa Crédito Livre":        0.30
+  "Renda Fixa Duração Média Grau de Investimento": 0.35
+  "Renda Fixa Indexados":                          0.40
+  "Renda Fixa Duração Alta Soberano":              0.45
+  "Renda Fixa Duração Média Crédito Livre":        0.50
+  "Renda Fixa Duração Livre Soberano":             0.50
+  "Renda Fixa Duração Alta Grau de Investimento":  0.55
+  "Renda Fixa Duração Livre Grau de Investimento": 0.60
+  "Renda Fixa Dívida Externa":                     0.70
+  "Renda Fixa Duração Alta Crédito Livre":         0.75
+  "Renda Fixa Duração Livre Crédito Livre":        0.80
+  "Renda Fixa Investimento no Exterior":           0.85

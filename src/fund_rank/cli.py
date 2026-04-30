@@ -122,5 +122,24 @@ def build(
     log.info("build.done", as_of=as_of_d.isoformat())
 
 
+@app.command()
+def rank(
+    as_of: str = typer.Option(..., "--as-of"),
+) -> None:
+    """Build gold layer: fund_metrics + ranking."""
+    configure_logging()
+    log = get_logger("fund_rank.cli.rank")
+    settings = get_settings()
+    as_of_d = _parse_as_of(as_of)
+
+    from fund_rank.gold import build_fund_metrics, build_ranking, build_ranking_report
+
+    log.info("rank.start", as_of=as_of_d.isoformat())
+    build_fund_metrics.run(settings, as_of_d)
+    build_ranking.run(settings, as_of_d)
+    build_ranking_report.run(settings, as_of_d)
+    log.info("rank.done", as_of=as_of_d.isoformat())
+
+
 if __name__ == "__main__":
     app()

@@ -82,4 +82,76 @@ Daily quota observations from CVM `INF_DIARIO`, unifying pre- and post-CVM 175 s
 
 ## Gold layer
 
-To be designed. The legacy gold/rank/report chain (built around the now-removed `silver/funds`/`quota_series`/`universe` tables) was retired; the new gold layer will be wired on top of `class_funds` + `subclass_funds`.
+Two tables. `fund_metrics` is the heavy compute (rolling stats over 8M+ daily quotes); `ranking` re-uses it cheaply, so scoring tweaks don't require recomputing metrics.
+
+### `gold/fund_metrics/as_of=YYYY-MM-DD/data.parquet`
+One row per investable fund — i.e. per class without subclasses **or** per subclass. The synthetic `fund_key` is `"CLS_" + cnpj_classe` for classes, `"SUB_" + id_subclasse_cvm` for subclasses (kept in the parquet as a join key for `ranking`). All metrics use the **entire** daily history available in `silver/quota_series` up to `as_of`, after dropping daily returns flagged as jumps (|z|>5σ on a 60-day rolling window — uses `universe.yaml#jump_detection_sigma`).
+
+| column | type | source / definition |
+|---|---|---|
+| `fund_key` | str | synthetic; `"CLS_<cnpj_classe>"` or `"SUB_<id_subclasse_cvm>"` |
+| `cnpj_fundo` | str (14 digits) | from class/subclass treated tables |
+| `cnpj_classe` | str (14 digits) | from class/subclass treated tables |
+| `id_subclasse_cvm` | str (nullable) | only for subclasses |
+| `situacao` | str | from class/subclass treated tables |
+| `publico_alvo` | str | from class/subclass treated tables |
+| `anbima_classification` | str | = `classificacao_anbima` |
+| `anbima_risk_weight` | float64 | lookup from `scoring.yaml#classificacao_anbima_risk` (range 0.05–0.85) |
+| `redemption_days` | int64 | = `prazo_de_resgate` |
+| `equity` | float64 | latest non-null `vl_patrim_liq` from `quota_series` (≤ as_of) |
+| `existing_time` | int64 | days between `data_de_inicio` and `as_of` |
+| `net_captation` | float64 | latest value of `rolling_mean(captc_dia − resg_dia, 252du)` |
+| `hit_rate` | float64 | % of months where `monthly_return_fund > monthly_return_benchmark` over the entire history |
+| `sharpe_rolling` | float64 | σ of the rolling-12m monthly Sharpe series (CDI as risk-free); high ⇒ inconsistent |
+| `liquid_return_12m` | float64 | compounded monthly return of the last 12 months ending at `as_of`'s month |
+| `standard_deviation_annualized` | float64 | `std(log_ret_diario) * sqrt(252)` over the entire history |
+| `max_drawdown` | float64 | minimum of `cum_quota / running_peak − 1` over the entire history (≤ 0) |
+
+Hit rate uses **monthly** comparison so benchmarks in different units (daily CDI / IMAs vs monthly IPCA-like) are directly comparable. CDI/SELIC monthly = `prod(1 + r_d) − 1`; IMAs/IRF-M monthly = end-of-month `level[m]/level[m-1] − 1`; IPCA/INPC/IGP-M = published monthly variation.
+
+Quality report at `reports/as_of=YYYY-MM-DD/fund_metrics_quality.md` (rows, distinct funds, nulls and ranges per column).
+
+### `gold/ranking/as_of=YYYY-MM-DD/data.parquet`
+Reads `gold/fund_metrics`, applies the scoring pipeline, and writes one row per fund with all input metrics + auditability columns + the final 0–100 `score`.
+
+**Score recipe**
+
+Numerator (`retorno_score`) — sum then minmax of:
+
+| metric | direction | null fill |
+|---|---|---|
+| `hit_rate` | positive (high = good) | 0 |
+| `sharpe_rolling` | **negative** (high σ = inconsistent = bad) | 0 |
+| `liquid_return_12m` | positive | 0 |
+
+Each metric goes through `clip 3σ → minmax 0-1 → invert if negative → fill_null`.
+
+Denominator (`risco_score`) — three subgroups, geometric mean:
+
+- **Qualidade (fragility):** `equity`, `existing_time`, `net_captation` — clip 3σ → minmax → **invert (1−x)** so high PL/age/inflows reduce risk → fill_null=1 → sum → minmax. Subgroup represents *fragility* (high = bad).
+- **Liquidez:** `anbima_risk_weight`, `redemption_days` — already "high = bad"; clip → minmax → fill_null=1 → sum → minmax.
+- **Volatilidade:** `standard_deviation_annualized`, `|max_drawdown|` — `max_drawdown` is always ≤ 0 so we take the absolute value before clipping → fill_null=1 → sum → minmax.
+
+Final: `risco_score = (qualidade × liquidez × volatilidade) ** (1/3)`. Geometric mean instead of pure product so a single near-zero subgroup doesn't collapse the risk to zero.
+
+Score: `score = minmax(retorno_score / (risco_score + 0.01)) * 100`, rounded to 2 decimals. The 0.01 epsilon prevents division-by-zero blow-ups for funds with extreme low risk on every dimension.
+
+**Final schema** (22 columns):
+
+```
+cnpj_fundo, cnpj_classe, id_subclasse_cvm, situacao, publico_alvo,
+anbima_classification, anbima_risk_weight, redemption_days,
+equity, existing_time, net_captation,
+hit_rate, sharpe_rolling, liquid_return_12m,
+standard_deviation_annualized, max_drawdown,
+retorno_score, qualidade, liquidez, volatilidade, risco_score, score
+```
+
+Sorted by `score` descending. Quality report at `reports/as_of=YYYY-MM-DD/ranking_quality.md` (5-bucket score distribution + nulls and ranges).
+
+**Important caveats** (per spec, not bugs):
+
+- No segment filtering — all RF funds compete in the same pool. RF Simples vs Crédito Livre Livre share the same normalization.
+- No IR deduction; `liquid_return_12m` is gross of taxes (CVM `vl_quota` is already net of fund fees).
+- No `universe.yaml` filter applied before scoring — funds with very short history get `null` on rolling metrics, which fall back to penalty fills (0 in numerator, 1 in denominator).
+- Funds with no quotas in `silver/quota_series` for their `(cnpj_fundo_classe, id_subclasse)` key drop out of `gold/fund_metrics` entirely (inner join on quotas).
