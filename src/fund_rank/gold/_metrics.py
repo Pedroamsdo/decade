@@ -198,6 +198,20 @@ def attach_equity(dim_fund: pl.DataFrame, quotas: pl.DataFrame) -> pl.DataFrame:
     return dim_fund.join(last_pl, on="fund_key", how="left")
 
 
+def attach_nr_cotst(dim_fund: pl.DataFrame, quotas: pl.DataFrame) -> pl.DataFrame:
+    """Latest non-null `nr_cotst` per fund_key (≤ as_of). Funds with no quotes
+    get `nr_cotst = 0`."""
+    last_n = (
+        quotas.filter(pl.col("nr_cotst").is_not_null())
+        .sort(["fund_key", "dt_comptc"])
+        .group_by("fund_key", maintain_order=True)
+        .agg(nr_cotst=pl.col("nr_cotst").last())
+    )
+    return dim_fund.join(last_n, on="fund_key", how="left").with_columns(
+        nr_cotst=pl.col("nr_cotst").fill_null(0).cast(pl.Int64)
+    )
+
+
 def attach_existing_time(dim_fund: pl.DataFrame, as_of: date) -> pl.DataFrame:
     """Days between `data_de_inicio` and `as_of`. Clipped to ≥ 0.
 

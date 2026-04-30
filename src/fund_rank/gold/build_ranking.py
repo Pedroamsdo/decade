@@ -51,6 +51,7 @@ FINAL_COLUMNS: list[str] = [
     "anbima_risk_weight",
     "redemption_days",
     "equity",
+    "nr_cotst",
     "existing_time",
     "net_captation",
     "hit_rate",

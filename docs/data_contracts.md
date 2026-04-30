@@ -99,6 +99,7 @@ One row per investable fund — i.e. per class without subclasses **or** per sub
 | `anbima_risk_weight` | float64 | lookup from `scoring.yaml#classificacao_anbima_risk` (range 0.05–0.85) |
 | `redemption_days` | int64 | = `prazo_de_resgate` |
 | `equity` | float64 | latest non-null `vl_patrim_liq` from `quota_series` (≤ as_of) |
+| `nr_cotst` | int64 | latest non-null `nr_cotst` from `quota_series`; 0 if the fund has no quotes attached |
 | `existing_time` | int64 | days between `data_de_inicio` and `as_of` |
 | `net_captation` | float64 | latest value of `rolling_mean(captc_dia − resg_dia, 252du)` |
 | `hit_rate` | float64 | % of months where `monthly_return_fund > monthly_return_benchmark` over the entire history |
@@ -136,18 +137,19 @@ Final: `risco_score = (qualidade × liquidez × volatilidade) ** (1/3)`. Geometr
 
 Score: `score = minmax(retorno_score / (risco_score + 0.01)) * 100`, rounded to 2 decimals. The 0.01 epsilon prevents division-by-zero blow-ups for funds with extreme low risk on every dimension.
 
-**Final schema** (22 columns):
+**Final schema** (24 columns):
 
 ```
 cnpj_fundo, cnpj_classe, id_subclasse_cvm, situacao, publico_alvo,
 anbima_classification, anbima_risk_weight, redemption_days,
-equity, existing_time, net_captation,
+equity, nr_cotst, existing_time, net_captation,
 hit_rate, sharpe_rolling, liquid_return_12m,
 standard_deviation_annualized, max_drawdown,
-retorno_score, qualidade, liquidez, volatilidade, risco_score, score
+retorno_score, qualidade, liquidez, volatilidade,
+risco_score_geo, risco_score, score
 ```
 
-Sorted by `score` descending. Quality report at `reports/as_of=YYYY-MM-DD/ranking_quality.md` (5-bucket score distribution + nulls and ranges).
+Sorted by `score` descending. `nr_cotst` is exposed for downstream filters (the `ranking.md` report uses `nr_cotst > 100` to focus on larger funds) but does **not** participate in the score. Quality report at `reports/as_of=YYYY-MM-DD/ranking_quality.md` (5-bucket score distribution + nulls and ranges).
 
 **Important caveats** (per spec, not bugs):
 

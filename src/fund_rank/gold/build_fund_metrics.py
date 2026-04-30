@@ -30,6 +30,7 @@ from fund_rank.gold._metrics import (
     attach_liquid_return_12m,
     attach_max_drawdown,
     attach_net_captation,
+    attach_nr_cotst,
     attach_sharpe_rolling_std,
     attach_std_annualized,
     daily_log_returns,
@@ -53,6 +54,7 @@ OUTPUT_COLUMNS: list[str] = [
     "anbima_risk_weight",
     "redemption_days",
     "equity",
+    "nr_cotst",
     "existing_time",
     "net_captation",
     "hit_rate",
@@ -243,6 +245,7 @@ def run(settings: Settings, as_of: date) -> Path:
         .pipe(attach_sharpe_rolling_std, monthly, bench_monthly)
         .pipe(attach_liquid_return_12m, monthly, as_of)
         .pipe(attach_equity, quotas_keyed)
+        .pipe(attach_nr_cotst, quotas_keyed)
         .pipe(attach_existing_time, as_of)
         .pipe(attach_net_captation, quotas_keyed)
         .pipe(attach_anbima_risk_weight, weights)

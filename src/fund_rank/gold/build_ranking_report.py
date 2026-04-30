@@ -90,20 +90,21 @@ def _profile_section(
     top = profile_df.sort("score", descending=True).head(top_n)
 
     section.append(
-        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Idade (d) | Retorno 12m | Hit rate | Max drawdown | Score |"
+        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Cotistas | Idade (d) | Retorno 12m | Hit rate | Max drawdown | Score |"
     )
     section.append(
-        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|"
+        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|"
     )
     for i, row in enumerate(top.iter_rows(named=True), start=1):
         section.append(
-            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {age} | {ret} | {hit} | {dd} | **{sc}** |".format(
+            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {cot} | {age} | {ret} | {hit} | {dd} | **{sc}** |".format(
                 i=i,
                 fund=_fund_label(row),
                 name=_fund_name(row),
                 anbima=row["anbima_classification"],
                 bench=_format_str(row.get("benchmark_canonico")),
                 eq=_format_money(row["equity"]),
+                cot=_format_int(row.get("nr_cotst")),
                 age=_format_int(row["existing_time"]),
                 ret=_format_pct(row["liquid_return_12m"]),
                 hit=_format_pct(row["hit_rate"]),
@@ -174,16 +175,29 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
     )
 
     total = df.height
-    eligible = df.filter(pl.col("situacao") == "Em Funcionamento Normal")
-    excluded = total - eligible.height
+    sit_ok = df.filter(pl.col("situacao") == "Em Funcionamento Normal")
+    excluded_situacao = total - sit_ok.height
+    eligible = sit_ok.filter(pl.col("nr_cotst") > 100)
+    excluded_cotistas = sit_ok.height - eligible.height
 
     lines: list[str] = []
     lines.append(f"# Fund Ranking — Renda Fixa (as_of = {as_of.isoformat()})\n")
     lines.append("## Filtro de elegibilidade\n")
+    lines.append("Aplicados em sequência:\n")
     lines.append(
-        f'Apenas fundos com `situacao = "Em Funcionamento Normal"`. '
-        f"**{eligible.height:,}** elegíveis de **{total:,}** totais "
-        f"({excluded:,} excluídos por situação).\n"
+        f"1. `situacao = \"Em Funcionamento Normal\"` → "
+        f"**{sit_ok.height:,}** de **{total:,}** "
+        f"({excluded_situacao:,} excluídos)."
+    )
+    lines.append(
+        f"2. `nr_cotst > 100` → "
+        f"**{eligible.height:,}** de **{sit_ok.height:,}** "
+        f"({excluded_cotistas:,} excluídos por terem ≤ 100 cotistas, "
+        "incluindo fundos sem cotas em quota_series com `nr_cotst = 0`)."
+    )
+    lines.append("")
+    lines.append(
+        f"**Universo final do ranking: {eligible.height:,} fundos.**\n"
     )
     lines.append("## Como o score é calculado\n")
     lines.append(
@@ -237,6 +251,7 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
         "gold.ranking_report.written",
         path=str(out),
         eligible=eligible.height,
-        excluded=excluded,
+        excluded_situacao=excluded_situacao,
+        excluded_cotistas=excluded_cotistas,
     )
     return out
