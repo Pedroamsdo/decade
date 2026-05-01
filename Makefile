@@ -1,8 +1,8 @@
 .PHONY: help setup ingest build all test lint clean clean-all
 
 AS_OF ?= 2025-12-31
-PY := .venv/bin/python
-PIP := .venv/bin/pip
+PY := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+PIP := $(if $(wildcard .venv/bin/pip),.venv/bin/pip,pip3)
 
 help:
 	@echo "Targets:"
