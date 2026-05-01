@@ -30,7 +30,7 @@ from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
 from fund_rank.silver._io import (
     cnpj_clean_expr,
-    list_zip_members,
+    read_cad_fi_hist_latest,
     read_csv_from_zip,
     silver_path,
     write_parquet,
@@ -101,88 +101,6 @@ def _apply_subclass_filter(df_classe: pl.DataFrame, df_subclasse: pl.DataFrame) 
     return out
 
 
-def _cad_fi_hist_zip_path(settings: Settings) -> Path | None:
-    part = latest_partition_dir(settings.bronze_root, "cvm_cad_fi_hist")
-    if part is None:
-        return None
-    zip_path = part / "raw.zip"
-    return zip_path if zip_path.exists() else None
-
-
-def _read_cad_fi_hist_latest(
-    settings: Settings,
-    member_name: str,
-    value_col: str,
-    date_col: str,
-    output_alias: str,
-    divide_by_100: bool = False,
-    cast_str: bool = False,
-) -> pl.DataFrame:
-    """Read a member of cvm_cad_fi_hist/raw.zip and keep the most-recent row per CNPJ_Fundo.
-
-    ``member_name`` is the CSV filename inside the zip (e.g. ``cad_fi_hist_taxa_adm.csv``).
-    ``date_col`` is the file-specific start-of-validity column (DT_INI_TAXA_ADM,
-    DT_INI_TAXA_PERFM, DT_INI_RENTAB). Returns a 2-column frame: ``cnpj_fundo``
-    + ``output_alias``.
-    """
-    empty_schema = {
-        "cnpj_fundo": pl.Utf8,
-        output_alias: pl.Utf8 if cast_str else pl.Float64,
-    }
-
-    zip_path = _cad_fi_hist_zip_path(settings)
-    if zip_path is None:
-        log.warning("silver.class_funds.hist_zip_missing")
-        return pl.DataFrame(schema=empty_schema)
-
-    members = list_zip_members(zip_path)
-    if member_name not in members:
-        log.warning(
-            "silver.class_funds.hist_member_missing",
-            member=member_name,
-            available=members,
-        )
-        return pl.DataFrame(schema=empty_schema)
-
-    df = read_csv_from_zip(zip_path, member_name)
-    cols = set(df.columns)
-
-    cnpj_col = "CNPJ_Fundo" if "CNPJ_Fundo" in cols else "CNPJ_FUNDO"
-    if cnpj_col not in cols or value_col not in cols or date_col not in cols:
-        log.warning(
-            "silver.class_funds.hist_unexpected_cols",
-            member=member_name,
-            cols=df.columns,
-            wanted=(cnpj_col, value_col, date_col),
-        )
-        return pl.DataFrame(schema=empty_schema)
-
-    value_expr: pl.Expr
-    if cast_str:
-        value_expr = pl.col(value_col).cast(pl.Utf8, strict=False).alias(output_alias)
-    else:
-        v = pl.col(value_col).cast(pl.Float64, strict=False)
-        if divide_by_100:
-            v = v / 100.0
-        value_expr = v.alias(output_alias)
-
-    out = (
-        df.select(
-            cnpj_clean_expr(cnpj_col, "cnpj_fundo"),
-            pl.col(date_col).str.to_date(format="%Y-%m-%d", strict=False).alias("_dt_ini"),
-            value_expr,
-        )
-        .sort("_dt_ini", descending=True, nulls_last=True)
-        .unique(subset=["cnpj_fundo"], keep="first", maintain_order=True)
-        .select("cnpj_fundo", output_alias)
-    )
-    log.info(
-        "silver.class_funds.hist_loaded",
-        member=member_name,
-        rows=len(out),
-        col=output_alias,
-    )
-    return out
 
 
 def _read_anbima(settings: Settings) -> pl.DataFrame:
@@ -393,7 +311,7 @@ def run(settings: Settings, as_of: date) -> Path:
 
     anbima = _read_anbima(settings)
 
-    taxa_adm = _read_cad_fi_hist_latest(
+    taxa_adm = read_cad_fi_hist_latest(
         settings,
         member_name="cad_fi_hist_taxa_adm.csv",
         value_col="TAXA_ADM",
@@ -401,7 +319,7 @@ def run(settings: Settings, as_of: date) -> Path:
         output_alias="taxa_adm",
         divide_by_100=True,
     )
-    taxa_perform = _read_cad_fi_hist_latest(
+    taxa_perform = read_cad_fi_hist_latest(
         settings,
         member_name="cad_fi_hist_taxa_perfm.csv",
         value_col="VL_TAXA_PERFM",
@@ -409,7 +327,7 @@ def run(settings: Settings, as_of: date) -> Path:
         output_alias="taxa_perform",
         divide_by_100=True,
     )
-    rentab = _read_cad_fi_hist_latest(
+    rentab = read_cad_fi_hist_latest(
         settings,
         member_name="cad_fi_hist_rentab.csv",
         value_col="RENTAB_FUNDO",

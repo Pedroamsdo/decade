@@ -54,6 +54,49 @@ class PipelineConfig(BaseModel):
     ingest: _IngestConfig
 
 
+class _MetricSpec(BaseModel):
+    direction: str  # "positive" | "negative"
+    weight: float
+
+    @model_validator(mode="after")
+    def _check_direction(self) -> _MetricSpec:
+        if self.direction not in ("positive", "negative"):
+            raise ValueError(
+                f"metric direction must be 'positive' or 'negative', got {self.direction!r}"
+            )
+        if self.weight <= 0:
+            raise ValueError(f"metric weight must be > 0, got {self.weight}")
+        return self
+
+
+class _EligibilityConfig(BaseModel):
+    situacao: str
+    nr_cotst_min: int
+    existing_time_min_days: int
+    equity_min_brl: float
+
+
+class _SelectionConfig(BaseModel):
+    top_n: int = 5
+
+
+class ScoringConfig(BaseModel):
+    metrics: dict[str, _MetricSpec]
+    eligibility: _EligibilityConfig
+    selection: _SelectionConfig
+
+    @model_validator(mode="after")
+    def _check_weights_sum_to_one(self) -> ScoringConfig:
+        if not self.metrics:
+            raise ValueError("scoring.metrics must declare at least one metric")
+        total = sum(spec.weight for spec in self.metrics.values())
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(
+                f"scoring.metrics weights must sum to 1.0, got {total:.6f}"
+            )
+        return self
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="FUND_RANK_",
@@ -67,8 +110,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     _pipeline: PipelineConfig | None = None
-    _universe: dict[str, Any] | None = None
-    _scoring: dict[str, Any] | None = None
+    _scoring: ScoringConfig | None = None
     _benchmarks: dict[str, Any] | None = None
 
     @property
@@ -85,17 +127,11 @@ class Settings(BaseSettings):
         return self._pipeline
 
     @property
-    def universe(self) -> dict[str, Any]:
-        if self._universe is None:
-            with open(self.config_dir / "universe.yaml") as f:
-                self._universe = yaml.safe_load(f)
-        return self._universe
-
-    @property
-    def scoring(self) -> dict[str, Any]:
+    def scoring(self) -> ScoringConfig:
         if self._scoring is None:
             with open(self.config_dir / "scoring.yaml") as f:
-                self._scoring = yaml.safe_load(f)
+                raw = yaml.safe_load(f)
+            self._scoring = ScoringConfig.model_validate(raw)
         return self._scoring
 
     @property

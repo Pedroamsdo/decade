@@ -5,9 +5,9 @@
 O `score` em `gold/fund_metrics` é calculado **apenas** para fundos que passam pelos 4 critérios abaixo (os demais ficam com `score = null`):
 
 - `situacao = "Em Funcionamento Normal"`
-- `nr_cotst > 1.000` cotistas
-- `existing_time ≥ 252` dias (≈ 1 ano de história)
-- `equity ≥ R$ 50.000.000` (PL mínimo)
+- `nr_cotst > 1,000` cotistas
+- `existing_time ≥ 252` dias (≈ 1.0 ano de história)
+- `equity ≥ R$ 50,000,000` (PL mínimo)
 
 **Universo elegível: 406 de 5,849 fundos** (5,443 fora dos critérios).
 

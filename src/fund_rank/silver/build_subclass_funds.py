@@ -36,7 +36,7 @@ from fund_rank.silver._io import (
     silver_path,
     write_parquet,
 )
-from fund_rank.silver.build_class_funds import _read_cad_fi_hist_latest
+from fund_rank.silver._io import read_cad_fi_hist_latest
 
 log = get_logger(__name__)
 
@@ -404,7 +404,7 @@ def run(settings: Settings, as_of: date) -> Path:
     anbima_sub = _read_anbima_subclasse(settings)
     enriched, breakdown = _two_pass_anbima_join(base, anbima_sub)
 
-    taxa_adm = _read_cad_fi_hist_latest(
+    taxa_adm = read_cad_fi_hist_latest(
         settings,
         member_name="cad_fi_hist_taxa_adm.csv",
         value_col="TAXA_ADM",
@@ -412,7 +412,7 @@ def run(settings: Settings, as_of: date) -> Path:
         output_alias="taxa_adm",
         divide_by_100=True,
     )
-    taxa_perform = _read_cad_fi_hist_latest(
+    taxa_perform = read_cad_fi_hist_latest(
         settings,
         member_name="cad_fi_hist_taxa_perfm.csv",
         value_col="VL_TAXA_PERFM",
@@ -420,7 +420,7 @@ def run(settings: Settings, as_of: date) -> Path:
         output_alias="taxa_perform",
         divide_by_100=True,
     )
-    rentab = _read_cad_fi_hist_latest(
+    rentab = read_cad_fi_hist_latest(
         settings,
         member_name="cad_fi_hist_rentab.csv",
         value_col="RENTAB_FUNDO",

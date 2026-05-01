@@ -5,15 +5,12 @@ Pipeline:
   2. Filter quotas <= as_of, attach fund_key (inner join).
   3. Daily log returns + jump filter (|z|>5σ on rolling 60-day window).
   4. Monthly returns; canonical monthly benchmark returns.
-  5. Attach Information Ratio (annualized, vs canonical benchmark).
+  5. Attach metrics declared in `configs/scoring.yaml` (currently: information_ratio).
   6. Attach equity, nr_cotst, existing_time (used as eligibility filters).
-  7. Score = percentile rank of IR across the eligible universe × 100.
+  7. Score = percentile rank of the configured composite over the eligible universe × 100.
 
-Eligibility (4 filters):
-  situacao = "Em Funcionamento Normal"
-  AND nr_cotst > 1000
-  AND existing_time >= 252  (≈ 1 year)
-  AND equity >= R$ 50M
+Eligibility filters and metric weights are loaded from `configs/scoring.yaml`
+via `Settings.scoring` (see `fund_rank/settings.ScoringConfig`).
 
 Funds outside the eligible universe keep their raw metrics but get score = null.
 Output: 9 columns documented in `docs/data_contracts.md`.
@@ -37,7 +34,7 @@ from fund_rank.gold._metrics import (
     monthly_returns_from_daily,
 )
 from fund_rank.obs.logging import get_logger
-from fund_rank.settings import Settings
+from fund_rank.settings import ScoringConfig, Settings
 from fund_rank.silver._io import silver_path, write_parquet
 
 log = get_logger(__name__)
@@ -57,11 +54,6 @@ OUTPUT_COLUMNS: list[str] = [
 
 
 CLASSE_SENTINEL = "__CLASSE__"
-
-# Filtros de elegibilidade (padrão de mercado)
-ELIGIBILITY_NR_COTST_MIN = 1_000
-ELIGIBILITY_EXISTING_TIME_MIN = 252  # ~1 ano de história
-ELIGIBILITY_EQUITY_MIN = 5e7  # R$ 50M
 
 
 def _build_dim_fund(cls: pl.DataFrame, sub: pl.DataFrame) -> pl.DataFrame:
@@ -107,34 +99,59 @@ def _attach_fund_key(quotas: pl.DataFrame, dim_fund: pl.DataFrame) -> pl.DataFra
     )
 
 
-def _compute_score(metrics: pl.DataFrame) -> pl.DataFrame:
-    """Score = percentile rank of `information_ratio` over the eligible universe × 100.
+def _compute_score(metrics: pl.DataFrame, scoring: ScoringConfig) -> pl.DataFrame:
+    """Score = percentile rank of the configured composite × 100, restricted to eligible funds.
 
-    Funds outside the eligibility universe get `score = null`. Rank uses
-    `method="average"` (ties get the average rank), divided by the count of
-    eligible funds.
+    Composite is built from `scoring.metrics`: signed by direction, weighted, and
+    z-scored over the eligible universe when more than one metric is configured.
+    With a single metric (the current default — `information_ratio` peso 1.0),
+    composite reduces to ±metric, so ranking is identical to the legacy behavior.
+
+    Funds outside the eligibility universe get `score = null`.
     """
+    elig = scoring.eligibility
     eligible_expr = (
-        (pl.col("situacao") == "Em Funcionamento Normal")
-        & (pl.col("nr_cotst") > ELIGIBILITY_NR_COTST_MIN)
-        & (pl.col("existing_time") >= ELIGIBILITY_EXISTING_TIME_MIN)
-        & (pl.col("equity") >= ELIGIBILITY_EQUITY_MIN)
+        (pl.col("situacao") == elig.situacao)
+        & (pl.col("nr_cotst") > elig.nr_cotst_min)
+        & (pl.col("existing_time") >= elig.existing_time_min_days)
+        & (pl.col("equity") >= elig.equity_min_brl)
     )
-    # IR só dos elegíveis (resto vira null e cai fora do rank)
+
+    metric_specs = list(scoring.metrics.items())
+    missing = [name for name, _ in metric_specs if name not in metrics.columns]
+    if missing:
+        raise ValueError(
+            f"scoring.metrics references columns not produced by gold pipeline: {missing}"
+        )
+
+    if len(metric_specs) == 1:
+        name, spec = metric_specs[0]
+        sign = 1.0 if spec.direction == "positive" else -1.0
+        composite_expr = sign * pl.col(name)
+    else:
+        terms = []
+        for name, spec in metric_specs:
+            sign = 1.0 if spec.direction == "positive" else -1.0
+            elig_metric = pl.when(eligible_expr).then(pl.col(name)).otherwise(None)
+            z = (pl.col(name) - elig_metric.mean()) / elig_metric.std()
+            terms.append(sign * spec.weight * z)
+        composite_expr = sum(terms)
+
+    metrics = metrics.with_columns(_composite=composite_expr)
     metrics = metrics.with_columns(
-        _ir_eligible=pl.when(eligible_expr)
-        .then(pl.col("information_ratio"))
+        _composite_eligible=pl.when(eligible_expr)
+        .then(pl.col("_composite"))
         .otherwise(None)
     )
-    n_eligible = pl.col("_ir_eligible").drop_nulls().count()
+    n_eligible = pl.col("_composite_eligible").drop_nulls().count()
     return metrics.with_columns(
-        score=pl.when(eligible_expr & pl.col("information_ratio").is_not_null())
+        score=pl.when(eligible_expr & pl.col("_composite").is_not_null())
         .then(
-            (pl.col("_ir_eligible").rank(method="average") / n_eligible * 100.0)
+            (pl.col("_composite_eligible").rank(method="average") / n_eligible * 100.0)
             .round(2)
         )
         .otherwise(None)
-    ).drop("_ir_eligible")
+    ).drop("_composite_eligible", "_composite")
 
 
 def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> Path:
@@ -246,7 +263,7 @@ def run(settings: Settings, as_of: date) -> Path:
         .pipe(attach_existing_time, as_of)
     )
 
-    metrics = _compute_score(metrics)
+    metrics = _compute_score(metrics, settings.scoring)
     eligible = metrics.filter(pl.col("score").is_not_null())
     log.info(
         "gold.fund_metrics.scored",

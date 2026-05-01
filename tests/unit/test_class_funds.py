@@ -94,7 +94,7 @@ def _settings_with_data_root(tmp_path: Path):
 
 
 def test_hist_row_selection_keeps_most_recent_per_cnpj(tmp_path):
-    from fund_rank.silver.build_class_funds import _read_cad_fi_hist_latest
+    from fund_rank.silver._io import read_cad_fi_hist_latest
 
     settings = _settings_with_data_root(tmp_path)
     csv_text = (
@@ -110,7 +110,7 @@ def test_hist_row_selection_keeps_most_recent_per_cnpj(tmp_path):
         {"cad_fi_hist_taxa_adm.csv": csv_text},
     )
 
-    out = _read_cad_fi_hist_latest(
+    out = read_cad_fi_hist_latest(
         settings,
         member_name="cad_fi_hist_taxa_adm.csv",
         value_col="TAXA_ADM",
@@ -126,12 +126,12 @@ def test_hist_row_selection_keeps_most_recent_per_cnpj(tmp_path):
 
 
 def test_hist_handles_missing_partition(tmp_path):
-    from fund_rank.silver.build_class_funds import _read_cad_fi_hist_latest
+    from fund_rank.silver._io import read_cad_fi_hist_latest
 
     settings = _settings_with_data_root(tmp_path)
     settings.bronze_root.mkdir(parents=True, exist_ok=True)
 
-    out = _read_cad_fi_hist_latest(
+    out = read_cad_fi_hist_latest(
         settings,
         member_name="cad_fi_hist_taxa_adm.csv",
         value_col="TAXA_ADM",

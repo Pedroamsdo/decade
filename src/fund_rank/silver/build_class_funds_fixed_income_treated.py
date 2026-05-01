@@ -20,6 +20,7 @@ from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
 from fund_rank.silver._benchmark_mapping import apply_benchmark_mapping
 from fund_rank.silver._io import silver_path, write_parquet
+from fund_rank.silver._quality_report import write_quality_report
 from fund_rank.silver._taxa_imputation import apply_taxa_imputation, compute_taxa_stats
 
 log = get_logger(__name__)
@@ -43,61 +44,6 @@ OUTPUT_COLUMNS: list[str] = [
     "taxa_perform",
     "benchmark",
 ]
-
-
-def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> Path:
-    rows = df.height
-    distinct = df["cnpj_classe"].n_unique() if rows else 0
-    dups = rows - distinct
-
-    lines: list[str] = []
-    lines.append(
-        f"# class_funds_fixed_income_treated — quality report (as_of={as_of.isoformat()})\n"
-    )
-    lines.append(f"- Rows: **{rows:,}**")
-    lines.append(f"- Distinct cnpj_classe: **{distinct:,}**")
-    lines.append(f"- Duplicates by cnpj_classe: **{dups:,}**\n")
-    lines.append("## Nulls by column\n")
-    lines.append("| column | nulls | pct |")
-    lines.append("|---|---|---|")
-    for col in OUTPUT_COLUMNS:
-        if col not in df.columns:
-            lines.append(f"| {col} | n/a | n/a |")
-            continue
-        nulls = int(df[col].null_count())
-        pct = (nulls / rows * 100.0) if rows else 0.0
-        lines.append(f"| {col} | {nulls:,} | {pct:.2f}% |")
-    lines.append("")
-
-    if dups > 0:
-        dup_rows = (
-            df.group_by("cnpj_classe")
-            .agg(pl.len().alias("n"))
-            .filter(pl.col("n") > 1)
-            .sort("n", descending=True)
-            .head(20)
-        )
-        lines.append("## Duplicate cnpj_classe (top 20)\n")
-        lines.append("| cnpj_classe | n |")
-        lines.append("|---|---|")
-        for r in dup_rows.iter_rows(named=True):
-            lines.append(f"| {r['cnpj_classe']} | {r['n']} |")
-        lines.append("")
-
-    out = (
-        settings.pipeline.reports_root
-        / f"as_of={as_of.isoformat()}"
-        / "class_funds_fixed_income_treated_quality.md"
-    )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines))
-    log.info(
-        "silver.class_funds_fixed_income_treated.quality_report",
-        path=str(out),
-        rows=rows,
-        duplicates=dups,
-    )
-    return out
 
 
 def run(settings: Settings, as_of: date) -> Path:
@@ -134,5 +80,10 @@ def run(settings: Settings, as_of: date) -> Path:
         rows=df.height,
     )
 
-    _write_quality_report(df, as_of, settings)
+    write_quality_report(
+        df, as_of, settings,
+        table_name="class_funds_fixed_income_treated",
+        distinct_keys=["cnpj_classe"],
+        null_columns=OUTPUT_COLUMNS,
+    )
     return out_path

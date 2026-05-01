@@ -12,81 +12,69 @@
 #   drop_filename  (ANBIMA) nome do XLS esperado em data/bronze/anbima_indices/dropped/
 #   granularity    daily | monthly  → controla o threshold no quality report
 #   unit           percent_per_day | percent_per_month | index_level
-#   active         true se a série entra no ranking gold (v2 — só CDI por enquanto)
 
 cdi:
   source: bcb_sgs
   series_id: 12
   granularity: daily
   unit: percent_per_day
-  active: true
 
 selic:
   source: bcb_sgs
   series_id: 11
   granularity: daily
   unit: percent_per_day
-  active: false
 
 ipca:
   source: bcb_sgs
   series_id: 433
   granularity: monthly
   unit: percent_per_month
-  active: false
 
 inpc:
   source: bcb_sgs
   series_id: 188
   granularity: monthly
   unit: percent_per_month
-  active: false
 
 igpm:
   source: bcb_sgs
   series_id: 189
   granularity: monthly
   unit: percent_per_month
-  active: false
 
 ima_b:
   source: anbima_drop
   drop_filename: IMAB-HISTORICO.xls
   granularity: daily
   unit: index_level
-  active: false
 
 ima_b_5:
   source: anbima_drop
   drop_filename: IMAB5-HISTORICO.xls
   granularity: daily
   unit: index_level
-  active: false
 
 ima_b_5plus:
   source: anbima_drop
   drop_filename: IMAB5MAIS-HISTORICO.xls
   granularity: daily
   unit: index_level
-  active: false
 
 ima_geral:
   source: anbima_drop
   drop_filename: IMAGERAL-HISTORICO.xls
   granularity: daily
   unit: index_level
-  active: false
 
 ima_s:
   source: anbima_drop
   drop_filename: IMAS-HISTORICO.xls
   granularity: daily
   unit: index_level
-  active: false
 
 irf_m:
   source: anbima_drop
   drop_filename: IRFM-HISTORICO.xls
   granularity: daily
   unit: index_level
-  active: false

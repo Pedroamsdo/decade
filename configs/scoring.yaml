@@ -1,87 +1,25 @@
-# Pesos do score por segmento.
-# direcao=positive => z-score como está; direcao=negative => sinal invertido antes de somar.
-# Pesos somam 1.00 dentro de cada segmento (validado em runtime).
+# Configuração do ranking de fundos.
+#
+# metrics: lista de métricas que entram no score, com peso e direção.
+#   - direction: "positive" => maior é melhor; "negative" => menor é melhor (sinal invertido).
+#   - weight: pesos somam 1.0 (validado em runtime).
+#   - O nome da chave deve bater com uma coluna produzida em gold/build_fund_metrics.
+#     Para adicionar nova métrica: criar attach_<nome> em gold/_metrics.py e listar aqui.
+#
+# eligibility: filtros aplicados antes do scoring. Fundo só recebe score se passar em TODOS.
+#
+# selection.top_n: tamanho do top retornado por perfil em build_ranking_report.
 
-metric_directions:
-  tracking_error_cdi_12m: negative
-  pct_cdi_12m: positive
-  info_ratio_12m: positive
-  sortino_24m: positive
-  excesso_retorno_24m: positive
-  ir_cdi_spread_24m: positive
-  max_drawdown_36m: negative
-  downside_dev_24m: negative
-  retorno_stress_event: positive
-  consistency_rolling_12m_above_bench: positive
-  custo_total_estimado: negative
-  log_pl_mediano_12m: positive
-  liquidez_settlement_window_days: negative
-  tracking_error_class_bench_12m: negative
-  drawdown_duration_days_36m: negative
+metrics:
+  information_ratio:
+    direction: positive
+    weight: 1.0
 
-weights:
-  caixa:
-    tracking_error_cdi_12m: 0.30
-    pct_cdi_12m: 0.25
-    consistency_rolling_12m_above_bench: 0.05
-    custo_total_estimado: 0.20
-    log_pl_mediano_12m: 0.10
-    liquidez_settlement_window_days: 0.10
-
-  rfgeral:
-    info_ratio_12m: 0.25
-    sortino_24m: 0.10
-    excesso_retorno_24m: 0.20
-    max_drawdown_36m: 0.15
-    consistency_rolling_12m_above_bench: 0.10
-    custo_total_estimado: 0.10
-    log_pl_mediano_12m: 0.05
-    liquidez_settlement_window_days: 0.05
-    # tracking_error_class_bench_12m removed (mantém soma=1.00; sinal redundante com info_ratio_12m)
-
-  qualificado:
-    sortino_24m: 0.20
-    ir_cdi_spread_24m: 0.20
-    max_drawdown_36m: 0.20
-    downside_dev_24m: 0.10
-    retorno_stress_event: 0.10
-    custo_total_estimado: 0.10
-    log_pl_mediano_12m: 0.05
-    liquidez_settlement_window_days: 0.05
-    # drawdown_duration_days_36m removed (mantém soma=1.00; redundante com max_drawdown_36m)
+eligibility:
+  situacao: "Em Funcionamento Normal"
+  nr_cotst_min: 1000
+  existing_time_min_days: 252
+  equity_min_brl: 50000000
 
 selection:
   top_n: 5
-  tiebreak_columns:
-    - custo_total_estimado     # menor é melhor
-    - log_pl_mediano_12m       # maior é melhor (sinal aplicado no scorer)
-
-stress_events:
-  - name: covid_2020
-    start: 2020-03-01
-    end: 2020-04-30
-  - name: marola_credito_2024
-    start: 2024-05-01
-    end: 2024-07-31
-
-# Risk weights per ANBIMA RF classification, used by gold/build_fund_metrics.
-# Range 0 (lowest risk) to 1 (highest risk). Composed from duration risk
-# (Baixa<Média<Alta<Livre), credit risk (Soberano<Grau de Investimento<Crédito Livre)
-# and FX risk (Investimento no Exterior, Dívida Externa).
-classificacao_anbima_risk:
-  "Renda Fixa Simples":                            0.05
-  "Renda Fixa Duração Baixa Soberano":             0.10
-  "Renda Fixa Duração Baixa Grau de Investimento": 0.20
-  "Renda Fixa Duração Média Soberano":             0.25
-  "Renda Fixa Duração Baixa Crédito Livre":        0.30
-  "Renda Fixa Duração Média Grau de Investimento": 0.35
-  "Renda Fixa Indexados":                          0.40
-  "Renda Fixa Duração Alta Soberano":              0.45
-  "Renda Fixa Duração Média Crédito Livre":        0.50
-  "Renda Fixa Duração Livre Soberano":             0.50
-  "Renda Fixa Duração Alta Grau de Investimento":  0.55
-  "Renda Fixa Duração Livre Grau de Investimento": 0.60
-  "Renda Fixa Dívida Externa":                     0.70
-  "Renda Fixa Duração Alta Crédito Livre":         0.75
-  "Renda Fixa Duração Livre Crédito Livre":        0.80
-  "Renda Fixa Investimento no Exterior":           0.85

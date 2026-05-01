@@ -20,6 +20,7 @@ import polars as pl
 from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
 from fund_rank.silver._io import silver_path, write_parquet
+from fund_rank.silver._quality_report import write_quality_report
 
 log = get_logger(__name__)
 
@@ -38,62 +39,26 @@ QUOTA_COLUMNS: list[str] = [
 ]
 
 
-def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> Path:
+def _coverage_lines(df: pl.DataFrame) -> list[str]:
     rows = df.height
-    distinct = (
-        df.select("cnpj_fundo_classe", "id_subclasse", "dt_comptc").unique().height
-        if rows
-        else 0
-    )
-    dups = rows - distinct
-
-    distinct_cnpj = df["cnpj_fundo_classe"].n_unique() if rows else 0
+    if rows == 0:
+        return ["## Coverage\n", "- _empty dataframe_\n"]
+    distinct_cnpj = df["cnpj_fundo_classe"].n_unique()
     distinct_subclasse = (
-        df.filter(pl.col("id_subclasse").is_not_null())["id_subclasse"].n_unique() if rows else 0
+        df.filter(pl.col("id_subclasse").is_not_null())["id_subclasse"].n_unique()
     )
-    dt_min = df["dt_comptc"].min() if rows else None
-    dt_max = df["dt_comptc"].max() if rows else None
-
+    dt_min = df["dt_comptc"].min()
+    dt_max = df["dt_comptc"].max()
     classe_rows = df.filter(pl.col("id_subclasse").is_null()).height
     sub_rows = df.filter(pl.col("id_subclasse").is_not_null()).height
-
-    lines: list[str] = []
-    lines.append(f"# quota_series_fixed_income — quality report (as_of={as_of.isoformat()})\n")
-    lines.append(f"- Rows: **{rows:,}**")
-    lines.append(
-        f"- Distinct (cnpj_fundo_classe, id_subclasse, dt_comptc): **{distinct:,}**"
-    )
-    lines.append(f"- Duplicates by composite key: **{dups:,}**\n")
-    lines.append("## Coverage\n")
-    lines.append(f"- Distinct cnpj_fundo_classe: **{distinct_cnpj:,}**")
-    lines.append(f"- Distinct id_subclasse (non-null): **{distinct_subclasse:,}**")
-    lines.append(f"- Classe-level rows (id_subclasse null): **{classe_rows:,}**")
-    lines.append(f"- Subclasse-level rows (id_subclasse filled): **{sub_rows:,}**")
-    lines.append(f"- dt_comptc range: **{dt_min}** → **{dt_max}**\n")
-
-    lines.append("## Nulls by column\n")
-    lines.append("| column | nulls | pct |")
-    lines.append("|---|---|---|")
-    for col in QUOTA_COLUMNS:
-        n = int(df[col].null_count()) if col in df.columns else 0
-        pct = (n / rows * 100.0) if rows else 0.0
-        lines.append(f"| {col} | {n:,} | {pct:.2f}% |")
-    lines.append("")
-
-    out = (
-        settings.pipeline.reports_root
-        / f"as_of={as_of.isoformat()}"
-        / "quota_series_fixed_income_quality.md"
-    )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines))
-    log.info(
-        "silver.quota_series_fixed_income.quality_report",
-        path=str(out),
-        rows=rows,
-        duplicates=dups,
-    )
-    return out
+    return [
+        "## Coverage\n",
+        f"- Distinct cnpj_fundo_classe: **{distinct_cnpj:,}**",
+        f"- Distinct id_subclasse (non-null): **{distinct_subclasse:,}**",
+        f"- Classe-level rows (id_subclasse null): **{classe_rows:,}**",
+        f"- Subclasse-level rows (id_subclasse filled): **{sub_rows:,}**",
+        f"- dt_comptc range: **{dt_min}** → **{dt_max}**\n",
+    ]
 
 
 def run(settings: Settings, as_of: date) -> Path:
@@ -144,5 +109,11 @@ def run(settings: Settings, as_of: date) -> Path:
         rows=rf_qs.height,
     )
 
-    _write_quality_report(rf_qs, as_of, settings)
+    write_quality_report(
+        rf_qs, as_of, settings,
+        table_name="quota_series_fixed_income",
+        distinct_keys=["cnpj_fundo_classe", "id_subclasse", "dt_comptc"],
+        null_columns=QUOTA_COLUMNS,
+        extra_sections=_coverage_lines(rf_qs),
+    )
     return out_path

@@ -144,7 +144,9 @@ def _summary_section(eligible: pl.DataFrame) -> list[str]:
     return section
 
 
-def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
+def run(settings: Settings, as_of: date, top_n: int | None = None) -> Path:
+    if top_n is None:
+        top_n = settings.scoring.selection.top_n
     in_path = gold_path(settings, "fund_metrics", as_of.isoformat())
     if not in_path.exists():
         raise FileNotFoundError(
@@ -193,6 +195,7 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
     eligible = df.filter(pl.col("score").is_not_null())
     excluded = total - eligible.height
 
+    elig = settings.scoring.eligibility
     lines: list[str] = []
     lines.append(f"# Fund Ranking — Renda Fixa (as_of = {as_of.isoformat()})\n")
     lines.append("## Filtro de elegibilidade\n")
@@ -201,10 +204,13 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
         "que passam pelos 4 critérios abaixo (os demais ficam com `score = null`):"
     )
     lines.append("")
-    lines.append("- `situacao = \"Em Funcionamento Normal\"`")
-    lines.append("- `nr_cotst > 1.000` cotistas")
-    lines.append("- `existing_time ≥ 252` dias (≈ 1 ano de história)")
-    lines.append("- `equity ≥ R$ 50.000.000` (PL mínimo)")
+    lines.append(f"- `situacao = \"{elig.situacao}\"`")
+    lines.append(f"- `nr_cotst > {elig.nr_cotst_min:,}` cotistas")
+    lines.append(
+        f"- `existing_time ≥ {elig.existing_time_min_days}` dias "
+        f"(≈ {elig.existing_time_min_days / 252:.1f} ano de história)"
+    )
+    lines.append(f"- `equity ≥ R$ {elig.equity_min_brl:,.0f}` (PL mínimo)")
     lines.append("")
     lines.append(
         f"**Universo elegível: {eligible.height:,} de {total:,} fundos** "

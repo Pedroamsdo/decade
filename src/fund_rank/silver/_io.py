@@ -177,3 +177,90 @@ def silver_path(settings: Settings, table: str, as_of: str, *parts: str) -> Path
     if parts:
         base = base.joinpath(*parts)
     return base / "data.parquet"
+
+
+# ---- cad_fi_hist helpers (shared by class/subclass builders) ----------------
+
+_log_io = get_logger(__name__)
+
+
+def _cad_fi_hist_zip_path(settings: Settings) -> Path | None:
+    part = latest_partition_dir(settings.bronze_root, "cvm_cad_fi_hist")
+    if part is None:
+        return None
+    zip_path = part / "raw.zip"
+    return zip_path if zip_path.exists() else None
+
+
+def read_cad_fi_hist_latest(
+    settings: Settings,
+    member_name: str,
+    value_col: str,
+    date_col: str,
+    output_alias: str,
+    divide_by_100: bool = False,
+    cast_str: bool = False,
+) -> pl.DataFrame:
+    """Read a member of cvm_cad_fi_hist/raw.zip and keep the most-recent row per CNPJ_Fundo.
+
+    ``member_name`` is the CSV filename inside the zip (e.g. ``cad_fi_hist_taxa_adm.csv``).
+    ``date_col`` is the file-specific start-of-validity column. Returns a 2-column
+    frame: ``cnpj_fundo`` + ``output_alias``.
+    """
+    empty_schema = {
+        "cnpj_fundo": pl.Utf8,
+        output_alias: pl.Utf8 if cast_str else pl.Float64,
+    }
+
+    zip_path = _cad_fi_hist_zip_path(settings)
+    if zip_path is None:
+        _log_io.warning("silver.cad_fi_hist.zip_missing")
+        return pl.DataFrame(schema=empty_schema)
+
+    members = list_zip_members(zip_path)
+    if member_name not in members:
+        _log_io.warning(
+            "silver.cad_fi_hist.member_missing",
+            member=member_name,
+            available=members,
+        )
+        return pl.DataFrame(schema=empty_schema)
+
+    df = read_csv_from_zip(zip_path, member_name)
+    cols = set(df.columns)
+
+    cnpj_col = "CNPJ_Fundo" if "CNPJ_Fundo" in cols else "CNPJ_FUNDO"
+    if cnpj_col not in cols or value_col not in cols or date_col not in cols:
+        _log_io.warning(
+            "silver.cad_fi_hist.unexpected_cols",
+            member=member_name,
+            cols=df.columns,
+            wanted=(cnpj_col, value_col, date_col),
+        )
+        return pl.DataFrame(schema=empty_schema)
+
+    if cast_str:
+        value_expr = pl.col(value_col).cast(pl.Utf8, strict=False).alias(output_alias)
+    else:
+        v = pl.col(value_col).cast(pl.Float64, strict=False)
+        if divide_by_100:
+            v = v / 100.0
+        value_expr = v.alias(output_alias)
+
+    out = (
+        df.select(
+            cnpj_clean_expr(cnpj_col, "cnpj_fundo"),
+            pl.col(date_col).str.to_date(format="%Y-%m-%d", strict=False).alias("_dt_ini"),
+            value_expr,
+        )
+        .sort("_dt_ini", descending=True, nulls_last=True)
+        .unique(subset=["cnpj_fundo"], keep="first", maintain_order=True)
+        .select("cnpj_fundo", output_alias)
+    )
+    _log_io.info(
+        "silver.cad_fi_hist.loaded",
+        member=member_name,
+        rows=len(out),
+        col=output_alias,
+    )
+    return out
