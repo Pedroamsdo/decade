@@ -1,7 +1,12 @@
-"""Generate `ranking.md` (Markdown) from `gold/ranking`.
+"""Generate `ranking.md` (Markdown) from `gold/fund_metrics`.
 
-Filters the universe to `situacao = "Em Funcionamento Normal"` and produces
-a Top-10 per `publico_alvo` profile (Público Geral, Qualificado, Profissional).
+Filters: `situacao = "Em Funcionamento Normal"` AND `nr_cotst > 100`.
+Output: Top-N per `publico_alvo` profile (Geral, Profissional, Qualificado),
+with the hierarchical eligibility rule (Geral sees only "Público Geral"; etc.).
+
+The score column is already computed inside `gold/fund_metrics`. This module
+only filters, joins denominação/benchmark from the silver treated tables,
+sorts and renders Markdown.
 """
 from __future__ import annotations
 
@@ -17,17 +22,14 @@ from fund_rank.settings import Settings
 log = get_logger(__name__)
 
 
-# Hierarquia de elegibilidade pedida pelo usuário:
+# Hierarquia de elegibilidade (regra padrão CVM — Profissional ⊃ Qualificado ⊃ Geral):
 #   - Investidor "Geral" pode investir SOMENTE em fundos Público Geral.
-#   - Investidor "Profissional" pode investir em Público Geral + Profissional.
-#   - Investidor "Qualificado" pode investir em todos (Geral + Qualificado + Profissional).
-#
-# Note que isso difere da regra padrão CVM (Profissional > Qualificado > Geral) —
-# está literalmente como pedido na conversa.
+#   - Investidor "Qualificado" pode investir em Público Geral + Qualificado.
+#   - Investidor "Profissional" pode investir em todos os tipos.
 PROFILES: list[tuple[str, list[str]]] = [
     ("Geral", ["Público Geral"]),
-    ("Profissional", ["Público Geral", "Profissional"]),
-    ("Qualificado", ["Público Geral", "Qualificado", "Profissional"]),
+    ("Qualificado", ["Público Geral", "Qualificado"]),
+    ("Profissional", ["Público Geral", "Qualificado", "Profissional"]),
 ]
 
 
@@ -57,6 +59,10 @@ def _format_score(v: float | None) -> str:
 
 def _format_str(v: str | None) -> str:
     return v if v else ""
+
+
+def _format_cv(v: float | None) -> str:
+    return "" if v is None else f"{v:.2f}"
 
 
 def _fund_label(row: dict) -> str:
@@ -90,25 +96,28 @@ def _profile_section(
     top = profile_df.sort("score", descending=True).head(top_n)
 
     section.append(
-        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Cotistas | Idade (d) | Retorno 12m | Hit rate | Max drawdown | Score |"
+        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Cotistas | Idade (d) | CAGR | Hit rate | CV | Max drawdown | Score |"
     )
     section.append(
-        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|"
+        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"
     )
     for i, row in enumerate(top.iter_rows(named=True), start=1):
         section.append(
-            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {cot} | {age} | {ret} | {hit} | {dd} | **{sc}** |".format(
+            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {cot} | {age} | {cagr} | {hit} | {cv} | {dd} | **{sc}** |".format(
                 i=i,
                 fund=_fund_label(row),
                 name=_fund_name(row),
-                anbima=row["anbima_classification"],
+                # `anbima_classification` e `benchmark_canonico` vêm do silver
+                # (treated tables) por join no `run()` — não estão em fund_metrics.
+                anbima=_format_str(row.get("anbima_classification")),
                 bench=_format_str(row.get("benchmark_canonico")),
                 eq=_format_money(row["equity"]),
                 cot=_format_int(row.get("nr_cotst")),
                 age=_format_int(row["existing_time"]),
-                ret=_format_pct(row["liquid_return_12m"]),
-                hit=_format_pct(row["hit_rate"]),
-                dd=_format_pct(row["max_drawdown"]),
+                cagr=_format_pct(row.get("cagr")),
+                hit=_format_pct(row.get("hit_rate")),
+                cv=_format_cv(row.get("cv_metric")),
+                dd=_format_pct(row.get("max_drawdown")),
                 sc=_format_score(row["score"]),
             )
         )
@@ -141,26 +150,28 @@ def _summary_section(eligible: pl.DataFrame) -> list[str]:
 
 
 def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
-    in_path = gold_path(settings, "ranking", as_of.isoformat())
+    in_path = gold_path(settings, "fund_metrics", as_of.isoformat())
     if not in_path.exists():
         raise FileNotFoundError(
-            f"gold/ranking not found at {in_path}; run build_ranking first."
+            f"gold/fund_metrics not found at {in_path}; run build_fund_metrics first."
         )
 
     df = pl.read_parquet(in_path)
 
-    # Attach canonical benchmark + display name (class denom for classes, subclass denom for subs).
+    # Attach canonical benchmark + display name + classificação ANBIMA from silver treated tables.
     cls_path = settings.silver_root / "class_funds_fixed_income_treated" / f"as_of={as_of.isoformat()}" / "data.parquet"
     sub_path = settings.silver_root / "subclass_funds_fixed_income_treated" / f"as_of={as_of.isoformat()}" / "data.parquet"
     cls_attrs = pl.read_parquet(cls_path).select(
         pl.col("cnpj_classe"),
         pl.col("benchmark").alias("benchmark_canonico"),
         pl.col("denom_social_classe").alias("nome_classe"),
+        pl.col("classificacao_anbima").alias("anbima_classification_cls"),
     )
     sub_attrs = pl.read_parquet(sub_path).select(
         pl.col("id_subclasse_cvm"),
         pl.col("benchmark").alias("benchmark_canonico_sub"),
         pl.col("denom_social_subclasse").alias("nome_subclasse"),
+        pl.col("classificacao_anbima").alias("anbima_classification_sub"),
     )
     df = (
         df.join(cls_attrs, on="cnpj_classe", how="left")
@@ -170,14 +181,23 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
                 "benchmark_canonico_sub", "benchmark_canonico"
             ),
             nome=pl.coalesce("nome_subclasse", "nome_classe"),
+            anbima_classification=pl.coalesce(
+                "anbima_classification_sub", "anbima_classification_cls"
+            ),
         )
-        .drop("benchmark_canonico_sub", "nome_subclasse", "nome_classe")
+        .drop(
+            "benchmark_canonico_sub",
+            "nome_subclasse",
+            "nome_classe",
+            "anbima_classification_sub",
+            "anbima_classification_cls",
+        )
     )
 
     total = df.height
     sit_ok = df.filter(pl.col("situacao") == "Em Funcionamento Normal")
     excluded_situacao = total - sit_ok.height
-    eligible = sit_ok.filter(pl.col("nr_cotst") > 100)
+    eligible = sit_ok.filter(pl.col("nr_cotst") > 1000)
     excluded_cotistas = sit_ok.height - eligible.height
 
     lines: list[str] = []
@@ -190,41 +210,43 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
         f"({excluded_situacao:,} excluídos)."
     )
     lines.append(
-        f"2. `nr_cotst > 100` → "
+        f"2. `nr_cotst > 1000` → "
         f"**{eligible.height:,}** de **{sit_ok.height:,}** "
-        f"({excluded_cotistas:,} excluídos por terem ≤ 100 cotistas, "
-        "incluindo fundos sem cotas em quota_series com `nr_cotst = 0`)."
+        f"({excluded_cotistas:,} excluídos por terem ≤ 1.000 cotistas)."
     )
     lines.append("")
     lines.append(
         f"**Universo final do ranking: {eligible.height:,} fundos.**\n"
     )
+
     lines.append("## Como o score é calculado\n")
     lines.append(
-        "- **Numerador (retorno):** `hit_rate vs benchmark` + `1 − σ(Sharpe rolling 12m)` + "
-        "`liquid_return_12m`. Cada coluna passa por clip 3σ → minmax 0-1 → soma → minmax."
-    )
-    lines.append(
-        "- **Denominador (risco):** média geométrica de três subgrupos, "
-        "**re-normalizada 0-1** antes da divisão:"
-    )
-    lines.append(
-        "  - **Qualidade do veículo (fragilidade):** `equity`, `existing_time`, `net_captation` "
-        "invertidos (`1 − x_norm`) — alto PL/idade/captação reduzem risco."
-    )
-    lines.append(
-        "  - **Liquidez (impedimento):** `anbima_risk_weight` + `redemption_days`."
-    )
-    lines.append(
-        "  - **Volatilidade:** `standard_deviation_annualized` + `|max_drawdown|`."
-    )
-    lines.append(
-        "- **Score = `retorno / (risco_norm + 0.01)` → minmax → × 100**, faixa 0–100."
+        "Lê `gold/fund_metrics` (a coluna `score` já vem calculada). Resumo da fórmula:"
     )
     lines.append("")
     lines.append(
-        "Tratamento de nulls: zero no numerador (penaliza ausência), um no denominador "
-        "(fragilidade máxima — evita premiar quem não tem dado)."
+        "- **Numerador (retorno):** soma de `hit_rate` + `cagr` (ambos clipados a ±3σ "
+        "e normalizados 0-1; nulls = 0)."
+    )
+    lines.append(
+        "- **Denominador (risco):** **multiplicação** de dois subgrupos, cada um "
+        "soma normalizada de duas métricas:"
+    )
+    lines.append(
+        "  - **Qualidade do veículo (fragilidade):** `equity` e `existing_time` "
+        "invertidos (`1 − x_norm`) — alto PL/idade reduz risco."
+    )
+    lines.append(
+        "  - **Volatilidade:** `cv_metric` + `max_drawdown` invertido."
+    )
+    lines.append(
+        "- **Score = `retorno / risco` → outliers (`|z| > 3` no `score_raw`) viram 0 → "
+        "minmax → × 100**. Quando `risco == 0`, `score_raw = 0` (guard de divisão por zero)."
+    )
+    lines.append("")
+    lines.append(
+        "Detalhes de tratamento de nulls e outliers em `docs/data_contracts.md` "
+        "(seção Gold layer)."
     )
     lines.append("")
 
@@ -233,12 +255,11 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
     lines.append("---\n")
     lines.append("## Top-5 por perfil de investidor\n")
     lines.append(
-        "Cada perfil enxerga o pool dos fundos cujo `publico_alvo` ele pode acessar:\n\n"
+        "Cada perfil enxerga o pool dos fundos cujo `publico_alvo` ele pode acessar "
+        "(hierarquia CVM padrão — Profissional ⊃ Qualificado ⊃ Geral):\n\n"
         "- **Geral** → só fundos com `publico_alvo = \"Público Geral\"`.\n"
-        "- **Profissional** → fundos `\"Público Geral\"` + `\"Profissional\"`.\n"
-        "- **Qualificado** → todos os tipos (`\"Público Geral\"` + `\"Qualificado\"` + `\"Profissional\"`).\n\n"
-        "_(Hierarquia conforme pedida no enunciado; difere da regra padrão CVM, "
-        "em que Profissional é o topo.)_\n\n"
+        "- **Qualificado** → fundos `\"Público Geral\"` + `\"Qualificado\"`.\n"
+        "- **Profissional** → todos os tipos (`\"Público Geral\"` + `\"Qualificado\"` + `\"Profissional\"`).\n\n"
         "Fundos sem `publico_alvo` declarado (`null`) ficam fora das três listas."
     )
     lines.append("")

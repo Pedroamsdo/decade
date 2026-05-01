@@ -7,9 +7,10 @@ from datetime import date, timedelta
 import polars as pl
 
 from fund_rank.gold._metrics import (
+    attach_cagr,
+    attach_cv_metric,
     attach_existing_time,
     attach_max_drawdown,
-    attach_std_annualized,
     daily_log_returns,
     flag_jumps,
     monthly_returns_from_daily,
@@ -96,19 +97,53 @@ def test_attach_max_drawdown_monotonically_increasing_is_zero():
     assert out["max_drawdown"][0] == 0.0
 
 
-def test_attach_std_annualized():
-    # log returns of [0.01, 0.02, -0.01, 0.005] → std ~ 0.013, annualized * sqrt(252)
-    dates = [date(2024, 1, i) for i in (1, 2, 3, 4, 5)]
+def test_attach_cagr_one_year_growth():
+    # Cota vai de 100 a 110 ao longo de 1 ano exato → CAGR = 10%.
     d = _fixture_daily(
         "F1",
-        dates,
-        [100.0, 101.0, 103.02, 101.99, 102.5],
+        [date(2024, 1, 1), date(2025, 1, 1)],
+        [100.0, 110.0],
     )
-    daily = daily_log_returns(d)
     dim = pl.DataFrame({"fund_key": ["F1"]})
-    out = attach_std_annualized(dim, daily)
-    expected = daily["log_ret"].std() * (252 ** 0.5)
-    assert math.isclose(out["standard_deviation_annualized"][0], expected, rel_tol=1e-6)
+    out = attach_cagr(dim, d)
+    expected = (110.0 / 100.0) ** (1 / (366 / 365.25)) - 1
+    assert math.isclose(out["cagr"][0], expected, rel_tol=1e-4)
+    # ≈ 0.10 (com pequeno offset por 366 dias num ano bissexto)
+    assert 0.09 < out["cagr"][0] < 0.11
+
+
+def test_attach_cagr_returns_null_for_single_observation():
+    d = _fixture_daily("F1", [date(2024, 1, 1)], [100.0])
+    dim = pl.DataFrame({"fund_key": ["F1"]})
+    out = attach_cagr(dim, d)
+    # Apenas 1 dia → years = 0 → null
+    assert out["cagr"][0] is None
+
+
+def test_attach_cv_metric_known_returns():
+    # Retornos mensais conhecidos: [0.02, 0.01, 0.03, 0.02]
+    # mean = 0.02, std = 0.00816, CV = 0.408
+    monthly = pl.DataFrame({
+        "fund_key": ["F1"] * 4,
+        "year_month": [date(2024, m, 1) for m in (1, 2, 3, 4)],
+        "monthly_ret": [0.02, 0.01, 0.03, 0.02],
+    })
+    dim = pl.DataFrame({"fund_key": ["F1"]})
+    out = attach_cv_metric(dim, monthly)
+    expected = pl.Series([0.02, 0.01, 0.03, 0.02]).std() / abs(0.02)
+    assert math.isclose(out["cv_metric"][0], expected, rel_tol=1e-6)
+
+
+def test_attach_cv_metric_returns_null_when_mean_is_zero():
+    # Retornos simétricos → mean ≈ 0 → CV é null para evitar blow-up
+    monthly = pl.DataFrame({
+        "fund_key": ["F1"] * 4,
+        "year_month": [date(2024, m, 1) for m in (1, 2, 3, 4)],
+        "monthly_ret": [0.01, -0.01, 0.01, -0.01],
+    })
+    dim = pl.DataFrame({"fund_key": ["F1"]})
+    out = attach_cv_metric(dim, monthly)
+    assert out["cv_metric"][0] is None
 
 
 def test_attach_existing_time():

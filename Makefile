@@ -9,7 +9,7 @@ help:
 	@echo "  setup           Create .venv and install package + dev deps"
 	@echo "  ingest          Run bronze ingestion (idempotent, etag-aware)"
 	@echo "  build           silver layer (class_funds + subclass_funds + RF subsets + quota_series)"
-	@echo "  rank            gold layer (fund_metrics + ranking)"
+	@echo "  rank            gold layer (fund_metrics + validacao + ranking.md)"
 	@echo "  all             ingest + build + rank"
 	@echo "  test            pytest"
 	@echo "  lint            ruff check"

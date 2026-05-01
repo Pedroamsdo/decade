@@ -132,11 +132,15 @@ def rank(
     settings = get_settings()
     as_of_d = _parse_as_of(as_of)
 
-    from fund_rank.gold import build_fund_metrics, build_ranking, build_ranking_report
+    from fund_rank.gold import (
+        build_fund_metrics,
+        build_ranking_report,
+        build_validacao,
+    )
 
     log.info("rank.start", as_of=as_of_d.isoformat())
     build_fund_metrics.run(settings, as_of_d)
-    build_ranking.run(settings, as_of_d)
+    build_validacao.run(settings, as_of_d)
     build_ranking_report.run(settings, as_of_d)
     log.info("rank.done", as_of=as_of_d.isoformat())
 
