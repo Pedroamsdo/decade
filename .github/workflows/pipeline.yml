@@ -31,7 +31,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -82,10 +82,16 @@ jobs:
           restore-keys: |
             bronze-${{ runner.os }}-py311-
 
+      # CI usa lookback enxuto (5y) — métricas do score (12m return,
+      # rolling Sharpe 12m, hit rate, drawdown) cabem em 60 meses com folga.
+      # Default local segue 30y (configs/pipeline.yaml) para análise histórica.
       - name: Run pipeline (ingest + build + rank)
         env:
           POLARS_MAX_THREADS: "2"  # runner free tem 2 vCPU
-        run: make all AS_OF=${{ steps.as_of.outputs.AS_OF }}
+        run: |
+          make all \
+            AS_OF=${{ steps.as_of.outputs.AS_OF }} \
+            INGEST_FLAGS="--inf-diario-months 60 --index-years 5"
 
       - name: Show ranking head
         if: always()

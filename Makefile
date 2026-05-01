@@ -1,6 +1,7 @@
 .PHONY: help setup ingest build all test lint clean clean-all
 
 AS_OF ?= 2025-12-31
+INGEST_FLAGS ?=
 PY := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 PIP := $(if $(wildcard .venv/bin/pip),.venv/bin/pip,pip3)
 
@@ -24,7 +25,7 @@ setup:
 	$(PIP) install -e ".[dev]"
 
 ingest:
-	$(PY) -m fund_rank.cli ingest --as-of $(AS_OF)
+	$(PY) -m fund_rank.cli ingest --as-of $(AS_OF) $(INGEST_FLAGS)
 
 build:
 	$(PY) -m fund_rank.cli build --as-of $(AS_OF)
