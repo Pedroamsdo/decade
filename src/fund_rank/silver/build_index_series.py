@@ -358,7 +358,11 @@ def run(settings: Settings, as_of: date) -> Path:
         if col not in base.columns:
             base = base.with_columns(pl.lit(None, dtype=pl.Float64).alias(col))
 
-    out = base.select(["data"] + list(INDEX_SOURCES)).sort("data")
+    out = (
+        base.select(["data"] + list(INDEX_SOURCES))
+        .filter(pl.col("data") <= as_of)
+        .sort("data")
+    )
 
     out_path = silver_path(settings, "index_series", as_of.isoformat())
     write_parquet(out, out_path)

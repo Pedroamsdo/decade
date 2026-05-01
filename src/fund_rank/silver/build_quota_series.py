@@ -200,6 +200,10 @@ def run(settings: Settings, as_of: date) -> Path:
     combined = pl.concat(frames, how="vertical_relaxed")
     typed = _apply_types(combined)
 
+    pre_cutoff_rows = typed.height
+    typed = typed.filter(pl.col("dt_comptc") <= as_of)
+    cutoff_dropped = pre_cutoff_rows - typed.height
+
     before = typed.height
     typed = typed.unique(
         subset=["cnpj_fundo_classe", "id_subclasse", "dt_comptc"],
@@ -217,6 +221,7 @@ def run(settings: Settings, as_of: date) -> Path:
         rows=typed.height,
         pre175_rows=pre_rows,
         post175_rows=post_rows,
+        cutoff_dropped=cutoff_dropped,
         deduped=deduped,
         distinct_cnpj=typed["cnpj_fundo_classe"].n_unique(),
         dt_min=str(typed["dt_comptc"].min()),

@@ -26,9 +26,16 @@ def _parse_as_of(value: str) -> date:
 
 @app.command()
 def ingest(
-    as_of: str = typer.Option(..., "--as-of", help="Reference date YYYY-MM-DD."),
+    as_of: str = typer.Option(..., "--as-of", help="Reference date YYYY-MM-DD (calculation cutoff, not ingest window)."),
     today: Optional[str] = typer.Option(
         None, "--today", help="Override today's date (for replay/testing)."
+    ),
+    ingest_until: Optional[str] = typer.Option(
+        None,
+        "--ingest-until",
+        help="Upper bound of the download window YYYY-MM-DD (default: today). "
+             "Decoupled from --as-of so the bronze layer can hold data beyond "
+             "the calculation cutoff; silver/gold layers filter by --as-of.",
     ),
     skip: List[str] = typer.Option(
         [],
@@ -53,6 +60,7 @@ def ingest(
     settings = get_settings()
     as_of_d = _parse_as_of(as_of)
     today_d = _parse_as_of(today) if today else date.today()
+    ingest_until_d = _parse_as_of(ingest_until) if ingest_until else today_d
 
     from fund_rank.bronze import (
         ingest_anbima_175,
@@ -64,7 +72,13 @@ def ingest(
     )
     from fund_rank.sources.http import make_client
 
-    log.info("ingest.start", as_of=as_of_d.isoformat(), today=today_d.isoformat(), skip=list(skip))
+    log.info(
+        "ingest.start",
+        as_of=as_of_d.isoformat(),
+        today=today_d.isoformat(),
+        ingest_until=ingest_until_d.isoformat(),
+        skip=list(skip),
+    )
 
     with make_client(
         timeout_seconds=settings.pipeline.http.timeout_seconds,
@@ -76,11 +90,21 @@ def ingest(
             ingest_registro_classe.run(settings, client, today=today_d)
         if "bcb_indices" not in skip:
             ingest_bcb_indices.run(
-                settings, client, as_of=as_of_d, today=today_d, lookback_years=index_years
+                settings,
+                client,
+                as_of=as_of_d,
+                today=today_d,
+                lookback_years=index_years,
+                ingest_until=ingest_until_d,
             )
         if "cvm_inf_diario" not in skip:
             ingest_inf_diario.run(
-                settings, client, as_of=as_of_d, today=today_d, lookback_months=inf_diario_months
+                settings,
+                client,
+                as_of=as_of_d,
+                today=today_d,
+                lookback_months=inf_diario_months,
+                ingest_until=ingest_until_d,
             )
 
     if "anbima_indices" not in skip:

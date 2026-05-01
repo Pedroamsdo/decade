@@ -35,16 +35,19 @@ def run(
     as_of: date,
     today: date | None = None,
     lookback_years: int | None = None,
+    ingest_until: date | None = None,
 ) -> list[IngestOutcome]:
     today = today or date.today()
+    ingest_until = ingest_until or today
     lookback = lookback_years or settings.pipeline.ingest.index_series_lookback_years
-    dt_fim = as_of
-    dt_ini = as_of - relativedelta(years=lookback)
+    dt_fim = ingest_until
+    dt_ini = ingest_until - relativedelta(years=lookback)
     chunks = chunk_decade(dt_ini, dt_fim, chunk_years=10)
 
     log.info(
         "bronze.bcb_indices.start",
         as_of=as_of.isoformat(),
+        ingest_until=ingest_until.isoformat(),
         lookback_years=lookback,
         n_series=len(BCB_INDICES),
         n_chunks=len(chunks),
