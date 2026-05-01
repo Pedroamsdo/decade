@@ -20,7 +20,6 @@ from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
 from fund_rank.silver._benchmark_mapping import apply_benchmark_mapping
 from fund_rank.silver._io import silver_path, write_parquet
-from fund_rank.silver._quality_report import write_quality_report
 from fund_rank.silver._taxa_imputation import apply_taxa_imputation, compute_taxa_stats
 
 log = get_logger(__name__)
@@ -78,12 +77,5 @@ def run(settings: Settings, as_of: date) -> Path:
         "silver.class_funds_fixed_income_treated.written",
         path=str(out_path),
         rows=df.height,
-    )
-
-    write_quality_report(
-        df, as_of, settings,
-        table_name="class_funds_fixed_income_treated",
-        distinct_keys=["cnpj_classe"],
-        null_columns=OUTPUT_COLUMNS,
     )
     return out_path

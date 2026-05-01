@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
 import httpx
 
 from fund_rank.bronze.manifest import (
     Manifest,
-    latest_partition_dir,
     now_iso,
     partition_dir,
     read_manifest,
@@ -39,29 +37,19 @@ def ingest_one(
     url: str,
     extension: str,
     competence: str | None = None,
-    today: date | None = None,
     accept_404: bool = True,
 ) -> IngestOutcome:
-    """Generic etag-aware ingest of a single URL into the bronze layer.
+    """Etag-aware ingest of one URL into the canonical bronze path.
 
-    On 304/Not Modified, returns the existing latest partition without writing.
-    On 404, returns status="not_found" without writing (caller decides if fatal).
+    Path is fixed: ``data/bronze/{source}[/competence={competence}]/``. On every
+    run the manifest's ``ingested_at`` is refreshed (so the run date is always
+    visible) — even when content didn't change. On 304/sha-match the payload is
+    untouched; on a fresh body, ``raw.{ext}`` is overwritten.
     """
-    today = today or date.today()
-    bronze_root = settings.bronze_root
-
-    prior = latest_partition_dir(bronze_root, source, competence=competence)
-    prior_manifest = read_manifest(prior) if prior else None
-    prior_etag = prior_manifest.etag if prior_manifest else None
-    prior_lm = prior_manifest.last_modified if prior_manifest else None
-
-    log.info(
-        "bronze.ingest.start",
-        source=source,
-        competence=competence,
-        url=url,
-        prior_etag=prior_etag,
-    )
+    part = partition_dir(settings.bronze_root, source, competence=competence)
+    prior = read_manifest(part)
+    prior_etag = prior.etag if prior else None
+    prior_lm = prior.last_modified if prior else None
 
     res: FetchResult = fetch_with_etag(
         client,
@@ -73,52 +61,38 @@ def ingest_one(
         backoff_max=settings.pipeline.http.retry_backoff_max_seconds,
     )
 
-    if res.status_code == 304:
-        log.info("bronze.ingest.not_modified", source=source, competence=competence)
-        return IngestOutcome(
-            source=source,
-            competence=competence,
-            status="not_modified",
-            partition=prior,
-            manifest=prior_manifest,
+    def _refresh(prior_manifest: Manifest, status: str) -> IngestOutcome:
+        manifest = Manifest(
+            source=prior_manifest.source,
+            url=prior_manifest.url,
+            competence=prior_manifest.competence,
+            etag=prior_manifest.etag,
+            last_modified=prior_manifest.last_modified,
+            sha256=prior_manifest.sha256,
+            byte_size=prior_manifest.byte_size,
+            row_count=prior_manifest.row_count,
+            ingested_at=now_iso(),
+            status=status,
         )
+        write_manifest(part, manifest)
+        log.info("bronze.ingest.refreshed", source=source, competence=competence, status=status)
+        return IngestOutcome(source, competence, status, part, manifest)
+
+    if res.status_code == 304 and prior is not None:
+        return _refresh(prior, "not_modified")
 
     if res.status_code == 404:
-        if accept_404:
-            log.warning("bronze.ingest.not_found", source=source, competence=competence, url=url)
-            return IngestOutcome(
-                source=source,
-                competence=competence,
-                status="not_found",
-                partition=None,
-                manifest=None,
-            )
-        raise RuntimeError(f"Source {source} returned 404 for {url}")
-
-    if res.content is None:
-        raise RuntimeError(
-            f"Source {source} returned status {res.status_code} with no content"
-        )
+        if not accept_404:
+            raise RuntimeError(f"Source {source} returned 404 for {url}")
+        if prior is not None:
+            return _refresh(prior, "not_found")
+        return IngestOutcome(source, competence, "not_found", None, None)
 
     sha = sha256_hex(res.content)
 
-    # Idempotency by content: if sha256 matches the latest partition, no-op.
-    if prior_manifest and prior_manifest.sha256 == sha:
-        log.info(
-            "bronze.ingest.same_sha",
-            source=source,
-            competence=competence,
-            sha256=sha,
-        )
-        return IngestOutcome(
-            source=source,
-            competence=competence,
-            status="not_modified",
-            partition=prior,
-            manifest=prior_manifest,
-        )
+    if prior is not None and prior.sha256 == sha:
+        return _refresh(prior, "not_modified")
 
-    part = partition_dir(bronze_root, source, today, competence=competence)
     write_payload(part, res.content, extension=extension)
     manifest = Manifest(
         source=source,
@@ -128,7 +102,7 @@ def ingest_one(
         last_modified=res.last_modified,
         sha256=sha,
         byte_size=len(res.content),
-        row_count=None,  # row count is computed in silver where parsing happens
+        row_count=None,
         ingested_at=now_iso(),
         status="fetched",
     )
@@ -140,10 +114,4 @@ def ingest_one(
         bytes=len(res.content),
         sha256=sha[:12],
     )
-    return IngestOutcome(
-        source=source,
-        competence=competence,
-        status="fetched",
-        partition=part,
-        manifest=manifest,
-    )
+    return IngestOutcome(source, competence, "fetched", part, manifest)

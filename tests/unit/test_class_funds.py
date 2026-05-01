@@ -56,11 +56,11 @@ def _make_bronze_zip(
     members: dict[str, str],
     today: date = date(2026, 4, 28),
 ) -> Path:
-    """Write a fake bronze partition with raw.zip (containing the given CSV members) + manifest."""
+    """Write the canonical bronze artifact (raw.zip + manifest) for tests."""
     import json
     import zipfile
 
-    part = bronze_root / source / f"ingested_at={today.isoformat()}"
+    part = bronze_root / source
     part.mkdir(parents=True, exist_ok=True)
     zip_path = part / "raw.zip"
     with zipfile.ZipFile(zip_path, "w") as z:

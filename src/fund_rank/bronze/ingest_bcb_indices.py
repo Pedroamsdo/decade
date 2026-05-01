@@ -1,8 +1,8 @@
 """Ingest BCB SGS series for all index_series benchmarks.
 
 Cobre CDI (12), SELIC (11), IPCA (433), INPC (188), IGP-M (189). Cada série é
-ingerida em janelas de até 10 anos (limite SGS) — uma `competence` por chunk.
-Idempotente via ``ingest_one()`` (sha256 + etag).
+ingerida em janelas de até 10 anos (limite SGS) — uma `competence` por chunk,
+ancorada em ``as_of`` para nomes determinísticos entre runs.
 """
 from __future__ import annotations
 
@@ -33,21 +33,16 @@ def run(
     settings: Settings,
     client: httpx.Client,
     as_of: date,
-    today: date | None = None,
     lookback_years: int | None = None,
-    ingest_until: date | None = None,
 ) -> list[IngestOutcome]:
-    today = today or date.today()
-    ingest_until = ingest_until or today
     lookback = lookback_years or settings.pipeline.ingest.index_series_lookback_years
-    dt_fim = ingest_until
-    dt_ini = ingest_until - relativedelta(years=lookback)
+    dt_fim = date(as_of.year, 12, 31)
+    dt_ini = dt_fim - relativedelta(years=lookback)
     chunks = chunk_decade(dt_ini, dt_fim, chunk_years=10)
 
     log.info(
         "bronze.bcb_indices.start",
         as_of=as_of.isoformat(),
-        ingest_until=ingest_until.isoformat(),
         lookback_years=lookback,
         n_series=len(BCB_INDICES),
         n_chunks=len(chunks),
@@ -66,7 +61,6 @@ def run(
                     url=ep.url,
                     extension="json",
                     competence=competence,
-                    today=today,
                     accept_404=True,
                 )
             )

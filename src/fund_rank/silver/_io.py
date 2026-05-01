@@ -15,7 +15,7 @@ from typing import Iterable, Iterator
 
 import polars as pl
 
-from fund_rank.bronze.manifest import latest_partition_dir
+from fund_rank.bronze.manifest import partition_dir
 from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
 
@@ -30,30 +30,27 @@ def all_partitions_for(
     source: str,
     competence: str | None = None,
 ) -> list[Path]:
-    """All partition dirs under (bronze_root / source / *). Returns latest per competence."""
+    """All canonical partition dirs under ``bronze_root/source``.
+
+    With ``competence``, returns ``[partition]`` if it has a manifest, else ``[]``.
+    Without it, returns the source root (if snapshot) plus every
+    ``competence=*`` subdir that has a manifest.
+    """
+    if competence is not None:
+        p = partition_dir(bronze_root, source, competence=competence)
+        return [p] if (p / "_manifest.json").exists() else []
+
     src_dir = bronze_root / source
     if not src_dir.exists():
         return []
-    if competence is None:
-        # Walk source and return latest at each competence (or root if no competence)
-        per_competence: dict[str | None, Path] = {}
-        for ingested_dir in sorted(src_dir.iterdir()):
-            if not ingested_dir.is_dir() or not ingested_dir.name.startswith("ingested_at="):
-                continue
-            # Has direct manifest? (snapshot-only sources)
-            if (ingested_dir / "_manifest.json").exists():
-                per_competence[None] = ingested_dir
-            for sub in ingested_dir.iterdir():
-                if sub.is_dir() and sub.name.startswith("competence="):
-                    if (sub / "_manifest.json").exists():
-                        comp = sub.name.split("=", 1)[1]
-                        prev = per_competence.get(comp)
-                        if prev is None or sub.parent.name > prev.parent.name:
-                            per_competence[comp] = sub
-        return sorted(per_competence.values())
 
-    p = latest_partition_dir(bronze_root, source, competence=competence)
-    return [p] if p else []
+    out: list[Path] = []
+    if (src_dir / "_manifest.json").exists():
+        out.append(src_dir)
+    for sub in sorted(src_dir.iterdir()):
+        if sub.is_dir() and sub.name.startswith("competence=") and (sub / "_manifest.json").exists():
+            out.append(sub)
+    return out
 
 
 # ---- CSV reading from zip / file ---------------------------------------------
@@ -162,6 +159,26 @@ def normalize_text_expr(col: str, alias: str) -> pl.Expr:
     )
 
 
+def text_strip_expr(col: str, alias: str | None = None) -> pl.Expr:
+    """Polars expr: cast to Utf8 (non-strict) and strip surrounding whitespace."""
+    return pl.col(col).cast(pl.Utf8, strict=False).str.strip_chars().alias(alias or col)
+
+
+def date_iso_expr(col: str, alias: str | None = None) -> pl.Expr:
+    """Polars expr: parse `YYYY-MM-DD` into Date (non-strict; bad rows -> null)."""
+    return pl.col(col).str.to_date(format="%Y-%m-%d", strict=False).alias(alias or col)
+
+
+def find_column(df: pl.DataFrame, *candidates: str) -> str | None:
+    """Case-insensitive lookup of the first matching column name in df."""
+    cols_norm = {c.strip().lower(): c for c in df.columns}
+    for cand in candidates:
+        hit = cols_norm.get(cand.strip().lower())
+        if hit is not None:
+            return hit
+    return None
+
+
 # ---- Parquet output ----------------------------------------------------------
 
 
@@ -185,10 +202,7 @@ _log_io = get_logger(__name__)
 
 
 def _cad_fi_hist_zip_path(settings: Settings) -> Path | None:
-    part = latest_partition_dir(settings.bronze_root, "cvm_cad_fi_hist")
-    if part is None:
-        return None
-    zip_path = part / "raw.zip"
+    zip_path = partition_dir(settings.bronze_root, "cvm_cad_fi_hist") / "raw.zip"
     return zip_path if zip_path.exists() else None
 
 
@@ -250,7 +264,7 @@ def read_cad_fi_hist_latest(
     out = (
         df.select(
             cnpj_clean_expr(cnpj_col, "cnpj_fundo"),
-            pl.col(date_col).str.to_date(format="%Y-%m-%d", strict=False).alias("_dt_ini"),
+            date_iso_expr(date_col, "_dt_ini"),
             value_expr,
         )
         .sort("_dt_ini", descending=True, nulls_last=True)

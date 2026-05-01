@@ -154,70 +154,6 @@ def _compute_score(metrics: pl.DataFrame, scoring: ScoringConfig) -> pl.DataFram
     ).drop("_composite_eligible", "_composite")
 
 
-def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> Path:
-    rows = df.height
-    distinct = (
-        df.select("cnpj_classe", "id_subclasse_cvm").unique().height if rows else 0
-    )
-
-    lines: list[str] = []
-    lines.append(f"# gold/fund_metrics — quality report (as_of={as_of.isoformat()})\n")
-    lines.append(f"- Rows: **{rows:,}**")
-    lines.append(f"- Distinct (cnpj_classe, id_subclasse_cvm): **{distinct:,}**\n")
-
-    if "score" in df.columns and rows:
-        s = df["score"].drop_nulls()
-        if s.len():
-            lines.append("## Score distribution (eligible universe)\n")
-            lines.append(f"- Eligible: **{s.len():,}** funds (rest have `score = null`)")
-            buckets = [(0, 20), (20, 40), (40, 60), (60, 80), (80, 100.01)]
-            lines.append("")
-            lines.append("| bucket | n | pct |")
-            lines.append("|---|---|---|")
-            for lo, hi in buckets:
-                n = int(s.filter((s >= lo) & (s < hi)).len())
-                pct = n / s.len() * 100.0
-                hi_str = "100" if hi > 100 else f"{hi:g}"
-                lines.append(f"| {lo:g}-{hi_str} | {n:,} | {pct:.2f}% |")
-            lines.append("")
-            lines.append(
-                f"- min/median/mean/max: {s.min():.2f} / {s.median():.2f} / "
-                f"{s.mean():.2f} / {s.max():.2f}"
-            )
-            lines.append("")
-
-    lines.append("## Nulls and ranges by column\n")
-    lines.append("| column | nulls | pct | min | max |")
-    lines.append("|---|---|---|---|---|")
-    for col in OUTPUT_COLUMNS:
-        if col not in df.columns:
-            lines.append(f"| {col} | n/a | n/a | n/a | n/a |")
-            continue
-        nulls = int(df[col].null_count())
-        pct = (nulls / rows * 100.0) if rows else 0.0
-        nn = df.filter(pl.col(col).is_not_null())[col]
-        if nn.len() > 0 and nn.dtype.is_numeric():
-            mn = f"{nn.min():.4g}"
-            mx = f"{nn.max():.4g}"
-        elif nn.len() > 0:
-            mn = str(nn.min())
-            mx = str(nn.max())
-        else:
-            mn = mx = "n/a"
-        lines.append(f"| {col} | {nulls:,} | {pct:.2f}% | {mn} | {mx} |")
-    lines.append("")
-
-    out = (
-        settings.pipeline.reports_root
-        / f"as_of={as_of.isoformat()}"
-        / "fund_metrics_quality.md"
-    )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines))
-    log.info("gold.fund_metrics.quality_report", path=str(out), rows=rows)
-    return out
-
-
 def run(settings: Settings, as_of: date) -> Path:
     cls_path = silver_path(settings, "class_funds_fixed_income_treated", as_of.isoformat())
     sub_path = silver_path(settings, "subclass_funds_fixed_income_treated", as_of.isoformat())
@@ -281,5 +217,4 @@ def run(settings: Settings, as_of: date) -> Path:
         path=str(out_path),
         rows=out_df.height,
     )
-    _write_quality_report(out_df, as_of, settings)
     return out_path

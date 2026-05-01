@@ -69,47 +69,6 @@ def _attach_quota_anchor(
     return last.rename({"cnpj_fundo_classe": "cnpj_fundo_classe_join"})
 
 
-def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> Path:
-    rows = df.height
-    distinct_classes = df["cnpj_classe"].n_unique() if rows else 0
-    distinct_subs = (
-        df.filter(pl.col("id_subclasse_cvm").is_not_null())["id_subclasse_cvm"].n_unique()
-        if rows
-        else 0
-    )
-    nulls = int(df["retorno_2025"].null_count())
-    nn = df["retorno_2025"].drop_nulls()
-
-    lines: list[str] = []
-    lines.append(f"# gold/validacao — quality report (as_of={as_of.isoformat()})\n")
-    lines.append(f"- Rows: **{rows:,}**")
-    lines.append(f"- Distinct cnpj_classe: **{distinct_classes:,}**")
-    lines.append(f"- Distinct id_subclasse_cvm: **{distinct_subs:,}**")
-    lines.append("")
-
-    lines.append("## retorno_2025\n")
-    lines.append(f"- Nulls: **{nulls:,}** ({nulls / rows * 100:.2f}% of rows)")
-    if nn.len() > 0:
-        lines.append(
-            f"- min/median/mean/max: **{nn.min():.4f}** / **{nn.median():.4f}** / "
-            f"**{nn.mean():.4f}** / **{nn.max():.4f}**"
-        )
-        lines.append(f"- p10/p25/p75/p90: "
-                     f"{nn.quantile(0.10):.4f} / {nn.quantile(0.25):.4f} / "
-                     f"{nn.quantile(0.75):.4f} / {nn.quantile(0.90):.4f}")
-    lines.append("")
-
-    out = (
-        settings.pipeline.reports_root
-        / f"as_of={as_of.isoformat()}"
-        / "validacao_quality.md"
-    )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines))
-    log.info("gold.validacao.quality_report", path=str(out), rows=rows, nulls=nulls)
-    return out
-
-
 def run(settings: Settings, as_of: date) -> Path:
     cls_path = silver_path(settings, "class_funds_fixed_income_treated", as_of.isoformat())
     sub_path = silver_path(settings, "subclass_funds_fixed_income_treated", as_of.isoformat())
@@ -177,5 +136,4 @@ def run(settings: Settings, as_of: date) -> Path:
         nulls_retorno=int(df["retorno_2025"].null_count()),
     )
 
-    _write_quality_report(df, as_of, settings)
     return out_path

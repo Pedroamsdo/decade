@@ -29,6 +29,7 @@ from fund_rank.settings import Settings
 from fund_rank.silver._io import (
     all_partitions_for,
     cnpj_clean_expr,
+    date_iso_expr,
     list_zip_members,
     read_csv_from_zip,
     silver_path,
@@ -142,7 +143,7 @@ def _normalize_csv(df: pl.DataFrame, era: Era) -> pl.DataFrame:
 def _apply_types(df: pl.DataFrame) -> pl.DataFrame:
     """Cast the *_raw columns to their final types and drop the raw versions."""
     return df.with_columns(
-        pl.col("dt_comptc_raw").str.to_date(format="%Y-%m-%d", strict=False).alias("dt_comptc"),
+        date_iso_expr("dt_comptc_raw", "dt_comptc"),
         pl.col("vl_total_raw").cast(pl.Float64, strict=False).alias("vl_total"),
         pl.col("vl_quota_raw").cast(pl.Float64, strict=False).alias("vl_quota"),
         pl.col("vl_patrim_liq_raw").cast(pl.Float64, strict=False).alias("vl_patrim_liq"),
@@ -157,12 +158,7 @@ def _read_zip_to_canonical(zip_path: Path, era: Era) -> pl.DataFrame:
     members = [m for m in list_zip_members(zip_path) if m.lower().endswith(".csv")]
     parts: list[pl.DataFrame] = []
     for m in members:
-        try:
-            raw = read_csv_from_zip(zip_path, m)
-        except Exception as e:
-            log.warning("silver.quota_series.csv_read_failed", zip=str(zip_path), member=m, error=str(e))
-            continue
-        df = _normalize_csv(raw, era)
+        df = _normalize_csv(read_csv_from_zip(zip_path, m), era)
         if df.is_empty():
             continue
         parts.append(df)

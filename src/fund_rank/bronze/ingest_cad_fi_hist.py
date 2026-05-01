@@ -5,8 +5,6 @@ rentab, situacao, ...). Silver builders read individual members on demand.
 """
 from __future__ import annotations
 
-from datetime import date
-
 import httpx
 
 from fund_rank.bronze._common import IngestOutcome, ingest_one
@@ -14,7 +12,7 @@ from fund_rank.settings import Settings
 from fund_rank.sources.cvm import cad_fi_hist_url
 
 
-def run(settings: Settings, client: httpx.Client, today: date | None = None) -> IngestOutcome:
+def run(settings: Settings, client: httpx.Client) -> IngestOutcome:
     ep = cad_fi_hist_url(settings)
     return ingest_one(
         settings,
@@ -23,6 +21,5 @@ def run(settings: Settings, client: httpx.Client, today: date | None = None) -> 
         url=ep.url,
         extension=settings.pipeline.sources.cvm_cad_fi_hist.extension,
         competence=None,
-        today=today,
         accept_404=False,
     )

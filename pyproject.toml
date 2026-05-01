@@ -28,9 +28,6 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
 ]
-prefect = [
-    "prefect>=3.1.0",
-]
 
 [project.scripts]
 fund-rank = "fund_rank.cli:app"

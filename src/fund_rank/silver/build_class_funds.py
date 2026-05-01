@@ -25,14 +25,17 @@ from pathlib import Path
 
 import polars as pl
 
-from fund_rank.bronze.manifest import latest_partition_dir
+from fund_rank.bronze.manifest import partition_dir
 from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
 from fund_rank.silver._io import (
     cnpj_clean_expr,
+    date_iso_expr,
+    find_column,
     read_cad_fi_hist_latest,
     read_csv_from_zip,
     silver_path,
+    text_strip_expr,
     write_parquet,
 )
 
@@ -61,12 +64,7 @@ OUTPUT_COLUMNS: list[str] = [
 
 
 def _read_registro_classe_zip(settings: Settings) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-    part = latest_partition_dir(settings.bronze_root, "cvm_registro_classe")
-    if part is None:
-        raise FileNotFoundError(
-            "No bronze partition for cvm_registro_classe; run `ingest` first."
-        )
-    zip_path = part / "raw.zip"
+    zip_path = partition_dir(settings.bronze_root, "cvm_registro_classe") / "raw.zip"
     df_classe = read_csv_from_zip(zip_path, "registro_classe.csv")
     df_fundo = read_csv_from_zip(zip_path, "registro_fundo.csv")
     df_subclasse = read_csv_from_zip(zip_path, "registro_subclasse.csv")
@@ -120,39 +118,27 @@ def _read_anbima(settings: Settings) -> pl.DataFrame:
         "prazo_de_resgate": pl.Int64,
     }
 
-    part = latest_partition_dir(settings.bronze_root, "anbima_175")
-    if part is None:
-        log.warning("silver.class_funds.anbima_missing")
+    drop_dir = settings.bronze_root / "anbima_175" / "dropped"
+    candidates = sorted(drop_dir.glob("*.xlsx")) if drop_dir.exists() else []
+    if not candidates:
+        log.warning("silver.class_funds.anbima_missing", drop_dir=str(drop_dir))
         return pl.DataFrame(schema=expected_schema)
 
-    xlsx_path = part / "raw.xlsx"
-    if not xlsx_path.exists():
-        log.warning("silver.class_funds.anbima_xlsx_missing", path=str(xlsx_path))
-        return pl.DataFrame(schema=expected_schema)
+    xlsx_path = candidates[0]
 
-    try:
-        df = pl.read_excel(xlsx_path, engine="calamine")
-    except Exception as e:
-        log.error("silver.class_funds.anbima_read_failed", error=str(e))
-        return pl.DataFrame(schema=expected_schema)
+    df = pl.read_excel(xlsx_path, engine="calamine")
 
-    col_map = {c: c for c in df.columns}
-    # Flexible column resolution: tolerate small variations in header naming.
-    def _find(*candidates: str) -> str | None:
-        for cand in candidates:
-            for c in df.columns:
-                if c.strip().lower() == cand.strip().lower():
-                    return c
-        return None
-
-    cnpj_fundo_col = _find("CNPJ Fundo", "CNPJ_Fundo", "CNPJ do Fundo")
-    cnpj_classe_col = _find("CNPJ Classe", "CNPJ_Classe", "CNPJ da Classe")
-    estrutura_col = _find("Estrutura")
-    tipo_col = _find("Tipo ANBIMA")
-    composicao_col = _find("Composição do Fundo", "Composição dos Fundos", "Composicao do Fundo")
-    trib_col = _find("Tributação Alvo", "Tributacao Alvo")
-    aplic_col = _find("Aplicação Inicial Mínima", "Aplicacao Inicial Minima")
-    prazo_col = _find(
+    cnpj_fundo_col = find_column(df, "CNPJ Fundo", "CNPJ_Fundo", "CNPJ do Fundo")
+    cnpj_classe_col = find_column(df, "CNPJ Classe", "CNPJ_Classe", "CNPJ da Classe")
+    estrutura_col = find_column(df, "Estrutura")
+    tipo_col = find_column(df, "Tipo ANBIMA")
+    composicao_col = find_column(
+        df, "Composição do Fundo", "Composição dos Fundos", "Composicao do Fundo"
+    )
+    trib_col = find_column(df, "Tributação Alvo", "Tributacao Alvo")
+    aplic_col = find_column(df, "Aplicação Inicial Mínima", "Aplicacao Inicial Minima")
+    prazo_col = find_column(
+        df,
         "Prazo Pagamento Resgate em dias",
         "Prazo de Pagamento Resgate em dias",
         "Prazo Pagamento Resgate (dias)",
@@ -227,13 +213,9 @@ def _build_classe_dim(df_classe: pl.DataFrame, df_fundo: pl.DataFrame) -> pl.Dat
     classe = df_classe.select(
         pl.col("ID_Registro_Fundo").cast(pl.Int64, strict=False),
         cnpj_clean_expr("CNPJ_Classe", "cnpj_classe"),
-        pl.col("Denominacao_Social").cast(pl.Utf8, strict=False).str.strip_chars().alias(
-            "denom_social_classe"
-        ),
+        text_strip_expr("Denominacao_Social", "denom_social_classe"),
         pl.col("Situacao").cast(pl.Utf8, strict=False).alias("situacao"),
-        pl.col("Data_Inicio_Situacao")
-        .str.to_date(format="%Y-%m-%d", strict=False)
-        .alias("data_de_inicio"),
+        date_iso_expr("Data_Inicio_Situacao", "data_de_inicio"),
         pl.col("Exclusivo").cast(pl.Utf8, strict=False).alias("exclusivo"),
         pl.col("Publico_Alvo").cast(pl.Utf8, strict=False).alias("publico_alvo"),
         pl.col("Forma_Condominio").cast(pl.Utf8, strict=False).alias("condominio"),
@@ -242,64 +224,13 @@ def _build_classe_dim(df_classe: pl.DataFrame, df_fundo: pl.DataFrame) -> pl.Dat
         df_fundo.select(
             pl.col("ID_Registro_Fundo").cast(pl.Int64, strict=False),
             cnpj_clean_expr("CNPJ_Fundo", "cnpj_fundo"),
-            pl.col("Denominacao_Social").cast(pl.Utf8, strict=False).str.strip_chars().alias(
-                "denom_social_fundo"
-            ),
+            text_strip_expr("Denominacao_Social", "denom_social_fundo"),
         )
         # CVM registro_fundo.csv occasionally ships literal duplicate rows for
         # the same ID_Registro_Fundo. Dedupe to avoid inflating the join.
         .unique(subset=["ID_Registro_Fundo"], keep="first", maintain_order=True)
     )
     return classe.join(fundo, on="ID_Registro_Fundo", how="left").drop("ID_Registro_Fundo")
-
-
-def _write_quality_report(df: pl.DataFrame, as_of: date, settings: Settings) -> Path:
-    rows = len(df)
-    distinct_classe = df["cnpj_classe"].n_unique() if rows else 0
-    dups = rows - distinct_classe
-
-    lines: list[str] = []
-    lines.append(f"# class_funds — quality report (as_of={as_of.isoformat()})\n")
-    lines.append(f"- Rows: **{rows}**")
-    lines.append(f"- Distinct cnpj_classe: **{distinct_classe}**")
-    lines.append(f"- Duplicates by cnpj_classe: **{dups}**\n")
-    lines.append("## Nulls by column\n")
-    lines.append("| column | nulls | pct |")
-    lines.append("|---|---|---|")
-    for col in OUTPUT_COLUMNS:
-        if col not in df.columns:
-            lines.append(f"| {col} | n/a | n/a |")
-            continue
-        nulls = int(df[col].null_count())
-        pct = (nulls / rows * 100.0) if rows else 0.0
-        lines.append(f"| {col} | {nulls} | {pct:.2f}% |")
-    lines.append("")
-
-    if dups > 0:
-        dup_rows = (
-            df.group_by("cnpj_classe")
-            .agg(pl.len().alias("n"))
-            .filter(pl.col("n") > 1)
-            .sort("n", descending=True)
-            .head(20)
-        )
-        lines.append("## Duplicate cnpj_classe (top 20)\n")
-        lines.append("| cnpj_classe | n |")
-        lines.append("|---|---|")
-        for r in dup_rows.iter_rows(named=True):
-            lines.append(f"| {r['cnpj_classe']} | {r['n']} |")
-        lines.append("")
-
-    out = settings.pipeline.reports_root / f"as_of={as_of.isoformat()}" / "class_funds_quality.md"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines))
-    log.info(
-        "silver.class_funds.quality_report",
-        path=str(out),
-        rows=rows,
-        duplicates=dups,
-    )
-    return out
 
 
 def run(settings: Settings, as_of: date) -> Path:
@@ -369,5 +300,4 @@ def run(settings: Settings, as_of: date) -> Path:
         cols=len(out_df.columns),
     )
 
-    _write_quality_report(out_df, as_of, settings)
     return out_path

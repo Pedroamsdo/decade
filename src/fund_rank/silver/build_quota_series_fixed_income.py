@@ -1,10 +1,7 @@
-"""silver/quota_series_fixed_income — RF subset of quota_series + quality report.
+"""silver/quota_series_fixed_income — RF subset of quota_series.
 
 Filters quota_series to rows whose underlying fund (class without subclasses
-OR subclass) appears in the RF dimension tables. Writes:
-
-  - silver/quota_series_fixed_income/as_of=YYYY-MM-DD/data.parquet
-  - reports/as_of=YYYY-MM-DD/quota_series_fixed_income_quality.md
+OR subclass) appears in the RF dimension tables.
 
 Filter semantics (id_subclasse is the discriminator):
   - id_subclasse IS NULL   → cnpj_fundo_classe must be in class_funds_fixed_income.cnpj_classe
@@ -20,7 +17,6 @@ import polars as pl
 from fund_rank.obs.logging import get_logger
 from fund_rank.settings import Settings
 from fund_rank.silver._io import silver_path, write_parquet
-from fund_rank.silver._quality_report import write_quality_report
 
 log = get_logger(__name__)
 
@@ -37,28 +33,6 @@ QUOTA_COLUMNS: list[str] = [
     "resg_dia",
     "nr_cotst",
 ]
-
-
-def _coverage_lines(df: pl.DataFrame) -> list[str]:
-    rows = df.height
-    if rows == 0:
-        return ["## Coverage\n", "- _empty dataframe_\n"]
-    distinct_cnpj = df["cnpj_fundo_classe"].n_unique()
-    distinct_subclasse = (
-        df.filter(pl.col("id_subclasse").is_not_null())["id_subclasse"].n_unique()
-    )
-    dt_min = df["dt_comptc"].min()
-    dt_max = df["dt_comptc"].max()
-    classe_rows = df.filter(pl.col("id_subclasse").is_null()).height
-    sub_rows = df.filter(pl.col("id_subclasse").is_not_null()).height
-    return [
-        "## Coverage\n",
-        f"- Distinct cnpj_fundo_classe: **{distinct_cnpj:,}**",
-        f"- Distinct id_subclasse (non-null): **{distinct_subclasse:,}**",
-        f"- Classe-level rows (id_subclasse null): **{classe_rows:,}**",
-        f"- Subclasse-level rows (id_subclasse filled): **{sub_rows:,}**",
-        f"- dt_comptc range: **{dt_min}** → **{dt_max}**\n",
-    ]
 
 
 def run(settings: Settings, as_of: date) -> Path:
@@ -107,13 +81,5 @@ def run(settings: Settings, as_of: date) -> Path:
         "silver.quota_series_fixed_income.written",
         path=str(out_path),
         rows=rf_qs.height,
-    )
-
-    write_quality_report(
-        rf_qs, as_of, settings,
-        table_name="quota_series_fixed_income",
-        distinct_keys=["cnpj_fundo_classe", "id_subclasse", "dt_comptc"],
-        null_columns=QUOTA_COLUMNS,
-        extra_sections=_coverage_lines(rf_qs),
     )
     return out_path

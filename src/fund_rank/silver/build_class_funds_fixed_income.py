@@ -42,6 +42,4 @@ def run(settings: Settings, as_of: date) -> Path:
         settings, as_of,
         in_table="class_funds",
         out_table="class_funds_fixed_income",
-        distinct_key="cnpj_classe",
-        output_columns=OUTPUT_COLUMNS,
     )

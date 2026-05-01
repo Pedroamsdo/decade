@@ -1,14 +1,18 @@
 """Bronze partition layout + manifest sidecar.
 
 Layout:
-  data/bronze/{source}/ingested_at={YYYY-MM-DD}[/competence={YYYY-MM}]/raw.{ext}
-  data/bronze/{source}/ingested_at={YYYY-MM-DD}[/competence={YYYY-MM}]/_manifest.json
+  data/bronze/{source}[/competence={…}]/raw.{ext}
+  data/bronze/{source}[/competence={…}]/_manifest.json
+
+The path is canonical (no ``ingested_at=…`` partition). The run date lives
+in ``Manifest.ingested_at`` and is rewritten on every run, even when content
+did not change (etag/sha hit).
 """
 from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 
@@ -22,47 +26,20 @@ class Manifest:
     sha256: str
     byte_size: int
     row_count: int | None
-    ingested_at: str  # ISO timestamp
+    ingested_at: str  # ISO timestamp — last time this run touched the source
     status: str        # "fetched" | "not_modified" | "not_found"
 
 
 def partition_dir(
     bronze_root: Path,
     source: str,
-    ingested_at: date,
     competence: str | None = None,
 ) -> Path:
-    parts: list[str] = [str(source), f"ingested_at={ingested_at.isoformat()}"]
+    """Canonical bronze path for (source, competence)."""
+    base = bronze_root / source
     if competence:
-        parts.append(f"competence={competence}")
-    return bronze_root.joinpath(*parts)
-
-
-def latest_partition_dir(
-    bronze_root: Path,
-    source: str,
-    competence: str | None = None,
-) -> Path | None:
-    """Return the most recently ingested partition for (source, competence) or None."""
-    src_dir = bronze_root / source
-    if not src_dir.exists():
-        return None
-
-    candidates: list[Path] = []
-    for p in src_dir.iterdir():
-        if not p.is_dir() or not p.name.startswith("ingested_at="):
-            continue
-        if competence:
-            cdir = p / f"competence={competence}"
-            if cdir.is_dir() and (cdir / "_manifest.json").exists():
-                candidates.append(cdir)
-        else:
-            if (p / "_manifest.json").exists():
-                candidates.append(p)
-    if not candidates:
-        return None
-    candidates.sort(key=lambda d: d.parent.name if competence else d.name, reverse=True)
-    return candidates[0]
+        base = base / f"competence={competence}"
+    return base
 
 
 def read_manifest(part_dir: Path) -> Manifest | None:
