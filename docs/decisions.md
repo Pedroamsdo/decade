@@ -128,3 +128,82 @@ Once each fund got its own canonical benchmark (ADR-003 current), excess returns
 Idempotency is enforced by sha256 (ADR-008): if the new payload matches the manifest's hash, the file isn't rewritten. Etag is the fast pre-check (`If-None-Match` returns 304 → skip body entirely).
 
 **Trade-off.** Replaying a historical fetch byte-for-byte is no longer possible — once a CVM file is republished and the hash differs, the old version is overwritten. The manifest's `last_modified` and `sha256` history (kept in git on the manifest file when changes are committed) is the audit substitute. For this project the trade-off is correct: the case study runs against current snapshots, not historical replays.
+
+---
+
+## ADR-012 · Local `make reproduce` as the canonical run path (no CI, no orchestrator in v1)
+
+**Status:** accepted · 2026-05-01 (supersedes the GitHub Actions workflow shipped in 8fcc367 and removed in 628252e)
+
+**Context.** The pipeline has two cost-shaped properties that constrain where it can run:
+
+1. **First-run download is ~1.5 GB / 30–60 min** of CVM Dados Abertos (84 monthly `INF_DIARIO` zips × ~10 MB + CAD hist + ANBIMA + BCB). CVM rate-limits at ~3 s/file with no documented quota.
+2. **Bronze is the slow layer; silver+gold+rank is ~2 min** on a laptop after bronze is warm (see `docs/scaling.md`).
+
+The take-home asks for a reproducible ranking, not a production schedule. A reviewer needs *one command* that works from a fresh clone — not a managed service to provision.
+
+**Decision.** The canonical run path is `make reproduce` on the reviewer's machine. No CI, no scheduler, no orchestrator deployment. The Prefect flow in `flows/daily_ingest.py` stays as an *example* of how to wrap the same CLI in a scheduler, but is not on the reproduction path.
+
+**Alternatives considered.**
+
+| Option | Why rejected for v1 |
+|---|---|
+| **GitHub Actions** (shipped in 8fcc367) | Tried and removed in 628252e. The free runner's 6 h job limit is not the binding constraint — the binding constraints were (a) the 1.5 GB CVM download saturating the runner cache and pushing first-run wall-clock past comfort (commit 79c44f5 capped lookback at 60 months and bumped timeout to 60 min just to keep CI green), (b) coupling reproduction to a GitHub identity the reviewer may not have, and (c) the artifact-vs-commit dance to surface `ranking.md` back on `main` adds a `[skip ci]` loop with no analytical value for a take-home. The CLI is identical either way — moving it back to CI later is a 30-line YAML, not a redesign. |
+| **Dagster Cloud** | Auth onboarding failed during the case-study window (could not complete login). For a single-DAG batch job with one entrypoint, Dagster's asset/op model is overkill — it earns its weight when you have a DAG of heterogeneous jobs sharing IO managers, not for `bronze → silver → gold → rank` where each step is already idempotent and the CLI is the unit of execution. |
+| **Airflow** | Operationally heavier than the entire pipeline it would orchestrate (scheduler + webserver + metadata DB + worker). Justified at multi-team / multi-DAG scale; not at one DAG, one user, one machine. |
+| **Prefect (deployed)** | The flow exists locally (`flows/daily_ingest.py`) and works, but a deployed Prefect Cloud workspace adds a managed-service dependency that the reviewer would have to provision to reproduce. Local Prefect runs add no value over `make reproduce` because the CLI is already idempotent (ADR-008). |
+
+**Why this is the right call for v1.**
+
+- **Reproducibility beats automation.** The reviewer's success criterion is "I cloned the repo and got the same `ranking.md` Pedro got" — that's a Make target, not a cron schedule.
+- **The CLI is the contract.** `fund-rank --as-of YYYY-MM-DD` is single-shot, idempotent, and pure-Python. Anything that wraps it (Actions, Prefect, Airflow, Dagster, ECS cron) is a thin shell. Picking the shell is a deployment decision, not an architecture decision, and the take-home is graded on architecture.
+- **CVM is the rate limit, not compute.** Adding a scheduler does not make CVM serve faster. It just hides where the 30–60 min goes.
+
+**When to revisit.** When the cadence becomes daily (so the 30–60 min download must run unattended) or the `as_of` history must be queryable beyond what fits on one disk. At that point the migration path is documented in `docs/scaling.md` (10× → S3 + scheduler; 100× → warehouse + worker pool). The CLI does not change.
+
+**Trade-off.** A reviewer without a working Python 3.9+ environment cannot run the pipeline. Mitigated by: (a) `make reproduce` creating its own venv, (b) ANBIMA XLS files committed under `data/bronze/anbima_*/dropped/` so no portal access is needed, (c) `ranking.md` already pinned in the repo so the output can be inspected without re-running.
+
+---
+
+## ADR-013 · Tax efficiency as a third score metric (not as net-of-tax returns)
+
+**Status:** accepted · 2026-05-01
+
+**Context.** The investor's relevant return is **after IR**, not gross. CVM's `vl_quota` is gross of redemption tax: a fund with IR `Longo Prazo` (15%) and another with `Isento` (0%) showing the same gross IR / Sortino do *not* deliver the same effective alpha. A score that ignores tax misranks them.
+
+The natural-feeling fix — multiply `excess[t]` by `(1 − tax_rate)` before computing IR / Sortino — **does not work**. IR and Sortino are scale-invariant ratios (`mean / std`), so a multiplicative tax haircut on `excess` cancels in the ratio and leaves the ranking identical to the gross version. Tax has to enter the score as a separate term, not as a transformation of the existing metrics.
+
+**Decision.** Add `tax_efficiency` as a third metric in the composite, weighted at 15% (IR 60% + Sortino 25% + tax_efficiency 15%). The metric is `1 − effective_ir_rate(tributacao_alvo)`, with rates declared per bucket in `configs/scoring.yaml#tax.rates` and assuming a 3-year holding period to collapse the regressive table to a single rate.
+
+```
+tax_efficiency = {
+  Isento:           1.00,   # LCI / LCA / debêntures incentivadas
+  Longo Prazo:      0.85,   # >720d na regressiva
+  Curto Prazo:      0.80,   # >180d, ≤720d
+  Previdenciário:   0.90,   # PGBL/VGBL ≥10y
+  Alíquota de 15%:  0.85,
+  Não Aplicável:    null,   # → tax_efficiency null → score null
+  Outros:           null,
+  Indefinido:       null,
+}
+```
+
+The z-score normalization in `_compute_score` automatically puts `tax_efficiency` (a 4-level discrete in {0.80, 0.85, 0.90, 1.00}) on the same axis as IR and Sortino before applying the 15% weight.
+
+**Alternatives considered.**
+
+| Option | Why rejected |
+|---|---|
+| **Net `excess[t]` directly** | Scale-invariance of IR/Sortino → ranking identical to gross. Documented as the trap. |
+| **Net total returns on both sides** (fund and benchmark each at their applicable rate) | Conceptually cleanest, but requires deciding "which tax bucket does a CDI / IPCA / IMA-B benchmark belong to from the investor's perspective?" — depends on the alternative the investor would actually buy (CDB Longo Prazo? Tesouro Selic Longo Prazo? LCI Isento?). Adds modeling surface without a defensible default. |
+| **Two scores: `score_gross` + `score_after_tax`** | Pushes the choice onto the user. Doesn't help the take-home present a single Top-5 recommendation. |
+| **Higher weight (>15%)** | A 4-level discrete metric with high weight starts to dominate the ranking — the score would essentially become "Isento > Previdenciário > Longo Prazo > Curto Prazo, with IR/Sortino as tiebreaker", which is not the intended hierarchy. 15% is enough to break ties between similar IR/Sortino funds but not enough to override a clear alpha-and-downside winner. |
+
+**Why 60/25/15.** Risk-adjusted alpha is the primary thesis (IR + Sortino = 85% combined), tax is a deterministic modifier (15%). A fund with strong IR + Sortino in `Longo Prazo` should still beat a mediocre fund in `Isento` — the 15% cap on tax_efficiency makes that happen.
+
+**Trade-offs / limitations.**
+
+- **Come-cotas not modeled.** Open-ended non-Isento / non-Previdência funds suffer ~0.5–1 p.p./yr drag from semestral IR antecipation (CVM antecipates IR every May and November on the appreciation, regardless of redemption). This affects all `Longo Prazo` and `Curto Prazo` open-ended funds equally relative to `Isento`, but is not captured by the static `1 − rate` mapping. v2 candidate.
+- **Holding period assumption is fixed at 3 years.** Investors with shorter horizons face higher rates (e.g., regressiva starts at 22.5% for ≤180d). The current model treats every Longo Prazo fund as 15% regardless of investor horizon — defensible for a long-term ranking thesis, wrong for a short-term tactical bucket.
+- **Benchmark side not tax-adjusted.** A direct CDI investor (CDB / Tesouro Selic) also pays Longo Prazo (15%). The current model penalizes Longo Prazo fund returns vs Isento fund returns without netting the benchmark, which directionally over-rewards Isento funds. Defensible at v1 because the relative tax advantage of Isento vs Longo Prazo flows through to the end investor regardless of which CDI alternative the benchmark represents.
+- **`tax_efficiency = null` excludes the fund from scoring.** Funds tagged Não Aplicável / Outros / Indefinido (~5% of the eligible RF universe) drop out. Acceptable: those buckets concentrate exclusivos / FIP / FIDC fechados / cadastros incompletos, which a Top-5 retail recommendation should not include anyway.

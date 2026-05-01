@@ -80,10 +80,28 @@ class _SelectionConfig(BaseModel):
     top_n: int = 5
 
 
+class _TaxConfig(BaseModel):
+    """Effective IR rate per `tributacao_alvo` bucket.
+
+    `rates` keys must match the values produced in silver `tributacao_alvo` (see
+    `data_contracts.md`). A value of `null` (None) marks the bucket as
+    unscored — funds in that bucket get `tax_efficiency = null` and therefore
+    `score = null` even if otherwise eligible.
+
+    `default_holding_period_years` is documentation-only — it states the
+    horizon assumed when collapsing the regressive table into a single rate
+    (e.g. 3y → 15% Longo Prazo, 20% Curto Prazo).
+    """
+
+    default_holding_period_years: float = 3.0
+    rates: dict[str, float | None] = Field(default_factory=dict)
+
+
 class ScoringConfig(BaseModel):
     metrics: dict[str, _MetricSpec]
     eligibility: _EligibilityConfig
     selection: _SelectionConfig
+    tax: _TaxConfig | None = None
 
     @model_validator(mode="after")
     def _check_weights_sum_to_one(self) -> ScoringConfig:
@@ -93,6 +111,11 @@ class ScoringConfig(BaseModel):
         if abs(total - 1.0) > 1e-6:
             raise ValueError(
                 f"scoring.metrics weights must sum to 1.0, got {total:.6f}"
+            )
+        if "tax_efficiency" in self.metrics and self.tax is None:
+            raise ValueError(
+                "scoring.metrics includes 'tax_efficiency' but scoring.tax is missing — "
+                "declare the rate table in scoring.yaml#tax."
             )
         return self
 

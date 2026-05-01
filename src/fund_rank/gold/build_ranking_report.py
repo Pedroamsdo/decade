@@ -96,24 +96,26 @@ def _profile_section(
     top = profile_df.sort("score", descending=True).head(top_n)
 
     section.append(
-        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Cotistas | Idade (d) | IR (anual) | Sortino (anual) | Score |"
+        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Tributação | Equity | Cotistas | Idade (d) | IR (anual) | Sortino (anual) | Tax eff. | Score |"
     )
     section.append(
-        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|"
+        "|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|"
     )
     for i, row in enumerate(top.iter_rows(named=True), start=1):
         section.append(
-            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {cot} | {age} | {ir} | {sortino} | **{sc}** |".format(
+            "| {i} | {fund} | {name} | {anbima} | {bench} | {trib} | {eq} | {cot} | {age} | {ir} | {sortino} | {tax} | **{sc}** |".format(
                 i=i,
                 fund=_fund_label(row),
                 name=_fund_name(row),
                 anbima=_format_str(row.get("anbima_classification")),
                 bench=_format_str(row.get("benchmark_canonico")),
+                trib=_format_str(row.get("tributacao_alvo")),
                 eq=_format_money(row["equity"]),
                 cot=_format_int(row.get("nr_cotst")),
                 age=_format_int(row["existing_time"]),
                 ir=_format_score(row.get("information_ratio")),
                 sortino=_format_score(row.get("sortino_ratio")),
+                tax=_format_score(row.get("tax_efficiency")),
                 sc=_format_score(row["score"]),
             )
         )
@@ -177,28 +179,36 @@ def run(settings: Settings, as_of: date, top_n: int | None = None) -> Path:
 
     lines.append("## Como o score é calculado\n")
     lines.append(
-        "Composto de **duas métricas** vs o benchmark canônico do fundo "
-        "(CDI / IPCA / IMA-B / etc., mapeado em `silver/_benchmark_mapping`), "
-        "alinhado ao framework CFA L3 para seleção de fundos de renda fixa:"
+        "Composto de **três métricas** alinhado ao framework CFA L3 para seleção "
+        "de fundos de renda fixa: duas mensuram retorno ajustado a risco vs o "
+        "benchmark canônico do fundo (CDI / IPCA / IMA-B / etc., mapeado em "
+        "`silver/_benchmark_mapping`); a terceira ajusta pelo imposto de renda "
+        "efetivo no resgate."
     )
     lines.append("")
     lines.append("```")
     lines.append("excess[t]        = monthly_ret_fund[t] − monthly_ret_bench[t]")
     lines.append("")
-    lines.append("IR_anualizado    = mean(excess) / std(excess) × √12              # peso 0.7")
-    lines.append("Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)  # peso 0.3")
+    lines.append("IR_anualizado    = mean(excess) / std(excess) × √12                  # peso 0.60")
+    lines.append("Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)   # peso 0.25")
+    lines.append("tax_efficiency   = 1 − alíquota_efetiva(tributacao_alvo)             # peso 0.15")
     lines.append("")
-    lines.append("composite        = 0.7 × z(IR) + 0.3 × z(Sortino)   # z-score sobre o universo elegível")
+    lines.append("composite        = 0.60 × z(IR) + 0.25 × z(Sortino) + 0.15 × z(tax_efficiency)")
+    lines.append("                   # z-score sobre o universo elegível")
     lines.append("score            = percentile_rank(composite) × 100")
     lines.append("```")
     lines.append("")
     lines.append(
-        "**Por que duas métricas.** O IR mede consistência de alpha, mas trata "
+        "**Por que três métricas.** O IR mede consistência de alpha, mas trata "
         "vol de upside e downside igualmente — ignora a assimetria típica de "
         "retornos de RF (eventos de crédito, choques de duration). O Sortino "
         "penaliza apenas vol negativa, capturando o risco de cauda esquerda. "
-        "Os pesos (70/30) priorizam consistência de alpha, mas descontam fundos "
-        "com drawdowns severos."
+        "O `tax_efficiency` desconta o imposto de renda no resgate (Isento → 1.00, "
+        "Longo Prazo → 0.85, Curto Prazo → 0.80, Previdenciário → 0.90, etc., "
+        "configurável em `scoring.yaml#tax`), garantindo que o score reflita o "
+        "retorno líquido que o investidor leva para casa, não o bruto. Pesos "
+        "60/25/15 priorizam alpha e downside como tese principal, com tributação "
+        "como modificador determinístico (não risco)."
     )
     lines.append("")
     lines.append(

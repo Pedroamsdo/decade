@@ -13,10 +13,13 @@
 metrics:
   information_ratio:
     direction: positive
-    weight: 0.7
+    weight: 0.6
   sortino_ratio:
     direction: positive
-    weight: 0.3
+    weight: 0.25
+  tax_efficiency:
+    direction: positive
+    weight: 0.15
 
 eligibility:
   situacao: "Em Funcionamento Normal"
@@ -26,3 +29,24 @@ eligibility:
 
 selection:
   top_n: 5
+
+# Imposto de renda efetivo por bucket de `tributacao_alvo` (silver treated).
+# `tax_efficiency = 1 - rate` é mapeado em gold.attach_tax_efficiency.
+# Buckets em `null` resultam em tax_efficiency = null → score = null
+# (não dá pra avaliar a eficiência tributária do fundo).
+#
+# default_holding_period_years é documentação: o horizonte assumido ao
+# colapsar a tabela regressiva em uma alíquota única (3 anos → 15% LP).
+# Não modela come-cotas (antecipação semestral em fundos abertos não-isentos
+# / não-previdenciários) — ver ADR-013.
+tax:
+  default_holding_period_years: 3.0
+  rates:
+    Isento:           0.00      # LCI / LCA / debêntures incentivadas
+    Longo Prazo:      0.15      # >720d na regressiva
+    Curto Prazo:      0.20      # >180d, ≤720d
+    Previdenciário:   0.10      # PGBL/VGBL regressiva ≥10y
+    Alíquota de 15%:  0.15      # FIP-like / fechados longo prazo
+    Não Aplicável:    null      # exclusivos / FIP / FIDC fechados
+    Outros:           null      # catch-all CVM
+    Indefinido:       null      # cadastro incompleto

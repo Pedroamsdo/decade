@@ -10,6 +10,7 @@ from fund_rank.gold._metrics import (
     attach_existing_time,
     attach_information_ratio,
     attach_sortino_ratio,
+    attach_tax_efficiency,
     daily_log_returns,
     flag_jumps,
     monthly_returns_from_daily,
@@ -172,3 +173,38 @@ def test_attach_sortino_ratio_returns_null_for_no_downside():
     dim = pl.DataFrame({"fund_key": ["F1"], "benchmark": ["CDI"]})
     out = attach_sortino_ratio(dim, monthly, bench_monthly)
     assert out["sortino_ratio"][0] is None
+
+
+def test_attach_tax_efficiency_maps_buckets_to_one_minus_rate():
+    dim = pl.DataFrame({
+        "fund_key": ["F1", "F2", "F3", "F4"],
+        "tributacao_alvo": ["Isento", "Longo Prazo", "Curto Prazo", "Previdenciário"],
+    })
+    rates = {
+        "Isento": 0.00,
+        "Longo Prazo": 0.15,
+        "Curto Prazo": 0.20,
+        "Previdenciário": 0.10,
+    }
+    out = attach_tax_efficiency(dim, rates).sort("fund_key")
+    eff = dict(zip(out["fund_key"].to_list(), out["tax_efficiency"].to_list()))
+    assert math.isclose(eff["F1"], 1.00)
+    assert math.isclose(eff["F2"], 0.85)
+    assert math.isclose(eff["F3"], 0.80)
+    assert math.isclose(eff["F4"], 0.90)
+
+
+def test_attach_tax_efficiency_null_for_unmapped_or_null_rate_bucket():
+    dim = pl.DataFrame({
+        "fund_key": ["F1", "F2", "F3"],
+        "tributacao_alvo": ["Não Aplicável", "Indefinido", "BucketDesconhecido"],
+    })
+    rates = {
+        "Isento": 0.00,
+        "Longo Prazo": 0.15,
+        "Não Aplicável": None,   # explicit null → null tax_efficiency
+        "Indefinido": None,
+        # "BucketDesconhecido" not in mapping → left join null
+    }
+    out = attach_tax_efficiency(dim, rates).sort("fund_key")
+    assert out["tax_efficiency"].null_count() == 3

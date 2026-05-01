@@ -30,21 +30,28 @@ If you upgraded from the partitioned-bronze version, run `rm -rf data/bronze/` o
 
 ## Score recipe (high level)
 
-Composite of **two metrics** vs the fund's canonical benchmark (CDI / IPCA / IMA-B / etc., mapped in `silver/_benchmark_mapping.py`), aligned with the CFA L3 framework for fixed-income fund selection.
+Composite of **three metrics**, aligned with the CFA L3 framework for fixed-income fund selection. Two measure risk-adjusted return vs the fund's canonical benchmark (CDI / IPCA / IMA-B / etc., mapped in `silver/_benchmark_mapping.py`); the third applies a deterministic haircut for the after-tax return the investor actually pockets at redemption.
 
 ```
 excess[t]        = monthly_ret_fund[t] − monthly_ret_bench[t]
 
-IR_anualizado    = mean(excess) / std(excess) × √12              # weight 0.7
-Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)  # weight 0.3
+IR_anualizado    = mean(excess) / std(excess) × √12                  # weight 0.60
+Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)   # weight 0.25
+tax_efficiency   = 1 − effective_ir_rate(tributacao_alvo)            # weight 0.15
 
-composite        = 0.7 × z(IR) + 0.3 × z(Sortino)   # z-score over the eligible universe
+composite        = 0.60 × z(IR) + 0.25 × z(Sortino) + 0.15 × z(tax_efficiency)
+                   # z-scores over the eligible universe
 score            = percentile_rank(composite) × 100
 ```
 
-**Why two metrics.** Information Ratio measures the consistency of active return, but its symmetric tracking-error denominator treats upside and downside vol equally — and ignores the asymmetry that dominates fixed-income returns (credit events, duration shocks). The Sortino Ratio fixes that gap by penalizing only negative excess returns, so funds with fat left tails get discounted even when their IR looks fine. The 70/30 split keeps consistency of alpha as the primary driver while making sure drawdown risk shows up in the score. Weights and metrics are config-driven in `configs/scoring.yaml`.
+**Why three metrics.**
+- **Information Ratio (0.60)** — consistency of active return. CFA-standard for active management.
+- **Sortino Ratio (0.25)** — penalizes only negative excess returns, capturing the asymmetric tail risk that dominates fixed-income return distributions (credit events, duration shocks). Fills the gap left by IR's symmetric tracking error.
+- **Tax efficiency (0.15)** — the redemption-time IR rate is deterministic per `tributacao_alvo` bucket (Isento → 0%, Longo Prazo → 15%, Curto Prazo → 20%, Previdenciário → 10%, …) and configurable in `scoring.yaml#tax`. Two funds with identical IR + Sortino but different tax buckets should not tie — the investor pockets different net returns.
 
-Eligibility: `situacao = "Em Funcionamento Normal"`, `nr_cotst > 1,000`, `existing_time ≥ 252` dias, `equity ≥ R$ 50 M`. Funds outside the criteria get `score = null`.
+The 60/25/15 split keeps risk-adjusted alpha as the primary thesis (85%), with tax efficiency as a deterministic modifier (15%, not enough to dominate the ranking but enough to break ties between similar funds). All weights and metrics are config-driven in `configs/scoring.yaml`.
+
+Eligibility: `situacao = "Em Funcionamento Normal"`, `nr_cotst > 1,000`, `existing_time ≥ 252` dias, `equity ≥ R$ 50 M`. Funds outside the criteria get `score = null`. Funds with `tributacao_alvo` mapped to `null` (Não Aplicável / Outros / Indefinido) also get `score = null` — the tax bucket is required to evaluate the composite.
 
 See `docs/methodology.md` and `docs/data_contracts.md` for the full breakdown.
 
@@ -53,6 +60,12 @@ See `docs/methodology.md` and `docs/data_contracts.md` for the full breakdown.
 ```bash
 .venv/bin/python -m pytest
 ```
+
+## Orchestration & scaling
+
+The reproduction path is **local**: `fund-rank --as-of …` from your shell. There is no CI, no scheduler, no managed orchestrator on the reproduction path. An earlier version of the repo ran the same CLI in GitHub Actions (commit `8fcc367`) — it was removed in `628252e` once it became clear that the binding constraint is the ~1.5 GB / 30–60 min CVM download, not compute, and that coupling reproduction to a CI identity adds friction without analytical value for a take-home.
+
+Dagster / Airflow / Prefect-deployed were considered and rejected for v1 — see [ADR-012](docs/decisions.md#adr-012--local-make-reproduce-as-the-canonical-run-path-no-ci-no-orchestrator-in-v1) for the full argument and [docs/scaling.md](docs/scaling.md) for the laptop → S3 → distributed migration path. Short version: the CLI is single-shot and idempotent (ADR-008), so wrapping it in *any* scheduler later is a deployment decision, not an architecture change.
 
 ## Layout
 

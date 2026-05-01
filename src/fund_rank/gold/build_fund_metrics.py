@@ -30,6 +30,7 @@ from fund_rank.gold._metrics import (
     attach_information_ratio,
     attach_nr_cotst,
     attach_sortino_ratio,
+    attach_tax_efficiency,
     daily_log_returns,
     flag_jumps,
     monthly_returns_from_daily,
@@ -46,11 +47,13 @@ OUTPUT_COLUMNS: list[str] = [
     "id_subclasse_cvm",
     "situacao",
     "publico_alvo",
+    "tributacao_alvo",
     "equity",
     "nr_cotst",
     "existing_time",
     "information_ratio",
     "sortino_ratio",
+    "tax_efficiency",
     "score",
 ]
 
@@ -65,6 +68,7 @@ def _build_dim_fund(cls: pl.DataFrame, sub: pl.DataFrame) -> pl.DataFrame:
         pl.col("situacao"),
         pl.col("publico_alvo"),
         pl.col("benchmark"),
+        pl.col("tributacao_alvo"),
         pl.col("data_de_inicio"),
         (pl.lit("CLS_") + pl.col("cnpj_classe")).alias("fund_key"),
         pl.col("cnpj_classe").alias("cnpj_fundo_classe_join"),
@@ -76,6 +80,7 @@ def _build_dim_fund(cls: pl.DataFrame, sub: pl.DataFrame) -> pl.DataFrame:
         pl.col("situacao"),
         pl.col("publico_alvo"),
         pl.col("benchmark"),
+        pl.col("tributacao_alvo"),
         pl.col("data_de_inicio"),
         (pl.lit("SUB_") + pl.col("id_subclasse_cvm")).alias("fund_key"),
         pl.col("cnpj_classe").alias("cnpj_fundo_classe_join"),
@@ -193,10 +198,12 @@ def run(settings: Settings, as_of: date) -> Path:
     monthly = monthly_returns_from_daily(daily_clean)
     bench_monthly = monthly_benchmark_returns(indices)
 
+    tax_rates = settings.scoring.tax.rates if settings.scoring.tax else {}
     metrics = (
         dim_fund
         .pipe(attach_information_ratio, monthly, bench_monthly)
         .pipe(attach_sortino_ratio, monthly, bench_monthly)
+        .pipe(attach_tax_efficiency, tax_rates)
         .pipe(attach_equity, quotas_keyed)
         .pipe(attach_nr_cotst, quotas_keyed)
         .pipe(attach_existing_time, as_of)

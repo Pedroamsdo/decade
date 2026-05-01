@@ -169,6 +169,35 @@ def attach_sortino_ratio(
     return dim_fund.join(sortino, on="fund_key", how="left")
 
 
+def attach_tax_efficiency(
+    dim_fund: pl.DataFrame,
+    rates: dict[str, float | None],
+) -> pl.DataFrame:
+    """Tax efficiency from `tributacao_alvo` and a config-driven rate table.
+
+    `tax_efficiency = 1 - effective_ir_rate(tributacao_alvo)`. Rates are
+    deterministic per bucket (Isento → 0.00, Longo Prazo → 0.15, etc.) and
+    declared in `configs/scoring.yaml#tax.rates`. Buckets mapped to `null`
+    (e.g. "Não Aplicável", "Indefinido") yield `tax_efficiency = null`.
+
+    Higher = better (less of the gross excess is given up to taxes).
+    Doesn't model come-cotas (semestral antecipation in open-ended
+    non-Isento / non-Previdência funds) — see ADR-013.
+    """
+    bucket_to_eff = {
+        bucket: (None if rate is None else 1.0 - float(rate))
+        for bucket, rate in rates.items()
+    }
+    mapping_df = pl.DataFrame(
+        {
+            "tributacao_alvo": list(bucket_to_eff.keys()),
+            "tax_efficiency": list(bucket_to_eff.values()),
+        },
+        schema={"tributacao_alvo": pl.Utf8, "tax_efficiency": pl.Float64},
+    )
+    return dim_fund.join(mapping_df, on="tributacao_alvo", how="left")
+
+
 def attach_equity(dim_fund: pl.DataFrame, quotas: pl.DataFrame) -> pl.DataFrame:
     """Latest non-null `vl_patrim_liq` per fund_key."""
     last_pl = (

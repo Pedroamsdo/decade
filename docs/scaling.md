@@ -10,7 +10,7 @@
 - Bronze is canonical (single location per source); re-runs use sha256 to short-circuit unchanged files (ADR-008).
 - The full ingest of 7 years (84 monthly INF_DIARIO + 2 yearly HIST + CAD + CDI + 6 ANBIMA index XLS drops) downloads ~1.5 GB and finishes in ~30–60 minutes on first run (network-bound).
 
-This is the default `fund-rank --as-of 2025-12-31` flow. No external dependencies beyond Python 3.9 + venv.
+This is the default `fund-rank --as-of 2025-12-31` flow. No external dependencies beyond Python 3.9 + venv. No CI, no scheduler, no orchestrator — see [ADR-012](decisions.md#adr-012--local-make-reproduce-as-the-canonical-run-path-no-ci-no-orchestrator-in-v1) for why this is the right v1 surface.
 
 ## 10× — daily ranking, S3-backed
 
@@ -20,9 +20,9 @@ When the cadence becomes daily and we want history to live longer than a laptop 
 |---|---|
 | Set `data_root: s3://decade-fund-rank-prod/data` in `configs/pipeline.yaml` | 5 min |
 | Configure AWS credentials (env vars or IAM role) | 5 min |
-| Schedule `fund-rank --as-of <date>` on a worker (ECS / cron / Prefect / Airflow) | 1 hr |
+| Schedule `fund-rank --as-of <date>` on a worker (ECS / cron / Prefect / Airflow / GitHub Actions) | 1 hr |
 
-The code does **not** change: `fsspec` abstracts the filesystem, and Polars / DuckDB read/write Parquet over s3 directly. The CLI entrypoint (`fund-rank`) is single-shot and idempotent — easy to wrap in any scheduler.
+The code does **not** change: `fsspec` abstracts the filesystem, and Polars / DuckDB read/write Parquet over s3 directly. The CLI entrypoint (`fund-rank`) is single-shot and idempotent — easy to wrap in any scheduler. Picking the scheduler is a deployment decision (cost, team familiarity, existing infra), not an architecture decision; ADR-012 explains why we don't pre-pick one in v1.
 
 Suggested cadence:
 - **daily** (06:00 BRT, M-F) — refetch CAD, registro_classe, CDI, INF_DIARIO (current month + M-1 for late corrections). Each source is idempotent via etag/sha256 (ADR-008).

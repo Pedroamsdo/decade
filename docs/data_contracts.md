@@ -100,7 +100,7 @@ Two parquet tables: `gold/fund_metrics` (score) and `gold/validacao` (calendar-y
 ### `gold/fund_metrics/as_of=YYYY-MM-DD/data.parquet`
 One row per investable fund (class without subclasses **or** subclass). Granularity key is `(cnpj_classe, id_subclasse_cvm)` (null for classes). Returns are computed over the entire daily history in `silver/quota_series` up to `as_of`, after dropping daily returns flagged as jumps (|z|>5σ on a 60-day rolling window).
 
-**10 columns:**
+**12 columns:**
 
 | column | type | description |
 |---|---|---|
@@ -108,25 +108,28 @@ One row per investable fund (class without subclasses **or** subclass). Granular
 | `id_subclasse_cvm` | str (nullable) | subclass id; null for classes |
 | `situacao` | str | CVM status — **filter only** |
 | `publico_alvo` | str | display only (used by `ranking.md` profiles) |
+| `tributacao_alvo` | str | tax bucket (Isento / Longo Prazo / Curto Prazo / Previdenciário / …); drives `tax_efficiency` |
 | `equity` | float64 | latest non-null `vl_patrim_liq` (≤ as_of) — **filter only** |
 | `nr_cotst` | int64 | latest non-null cotistas; 0 if no quotes — **filter only** |
 | `existing_time` | int64 | days between `data_de_inicio` and `as_of` — **filter only** |
 | `information_ratio` | float64 | `mean(excess) / std(excess) × √12` (annualized, vs canonical benchmark) |
 | `sortino_ratio` | float64 | `mean(excess) × 12 / (std(min(excess, 0)) × √12)` (annualized, downside-only) |
-| `score` | float64 | percentile rank of the weighted composite (`0.7 × z(IR) + 0.3 × z(Sortino)`) over the eligible universe × 100 |
+| `tax_efficiency` | float64 | `1 − effective_ir_rate(tributacao_alvo)`; deterministic per bucket from `scoring.yaml#tax` |
+| `score` | float64 | percentile rank of the weighted composite (`0.60 × z(IR) + 0.25 × z(Sortino) + 0.15 × z(tax_efficiency)`) over the eligible universe × 100 |
 
 #### Score recipe
 
-The score combines **two metrics** of excess return vs the fund's canonical benchmark — IR for consistency of alpha, Sortino for asymmetric downside risk. This is the CFA L3 framework for fixed-income fund selection: IR alone treats upside and downside vol symmetrically, which is wrong for RF distributions (fat left tails from credit events and duration shocks).
+The score combines **three metrics** — IR for consistency of alpha, Sortino for asymmetric downside risk, and tax efficiency for after-tax return at redemption. This is the CFA L3 framework for fixed-income fund selection: IR alone treats upside and downside vol symmetrically (wrong for RF distributions, which have fat left tails from credit events and duration shocks), and pure gross-return rankings ignore that the investor only pockets the post-tax return.
 
 ```
 excess[t]        = monthly_ret_fund[t] − monthly_ret_bench[t]
 
-IR_anualizado    = mean(excess) / std(excess) × √12              # weight 0.7
-Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)  # weight 0.3
+IR_anualizado    = mean(excess) / std(excess) × √12                  # weight 0.60
+Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)   # weight 0.25
+tax_efficiency   = 1 − effective_ir_rate(tributacao_alvo)            # weight 0.15
 
-composite        = 0.7 × z(IR) + 0.3 × z(Sortino)
-                   # z-scores taken over the eligible universe so the two
+composite        = 0.60 × z(IR) + 0.25 × z(Sortino) + 0.15 × z(tax_efficiency)
+                   # z-scores taken over the eligible universe so the three
                    # metrics enter on comparable scales
 
 eligible         = situacao == "Em Funcionamento Normal"
@@ -143,23 +146,30 @@ score            = round(percentile_rank(composite over eligible) × 100, 2)
 - IMA-* / IRF-M (`index_level`): `level[m]/level[m−1] − 1`.
 - IPCA/INPC/IGP-M (`percent_per_month`): published value / 100.
 
-**Why Information Ratio (weight 0.7):**
+**Why Information Ratio (weight 0.60):**
 - CFA standard for active management vs benchmark.
 - Tracking error (denominator) naturally normalizes funds tightly coupled to the benchmark.
 - Allows fair comparison across funds with different benchmarks (each rated against its own).
 - Sign-preserving: funds losing to the benchmark get IR < 0 → low percentile.
 
-**Why Sortino Ratio (weight 0.3):**
+**Why Sortino Ratio (weight 0.25):**
 - Penalizes only negative excess returns — captures the asymmetric tail risk that defines RF (drawdowns from credit events, marcação a mercado shocks).
 - Closes the gap left by IR's symmetric tracking error: two funds with the same IR can differ wildly in left-tail behavior.
-- Lower weight than IR because Sortino is unstable when a fund has few months below benchmark (denominator → 0). Z-score normalization tames the scale, but the 30% cap prevents an isolated quiet period from dominating the ranking.
+- Lower weight than IR because Sortino is unstable when a fund has few months below benchmark (denominator → 0). Z-score normalization tames the scale, but the cap prevents an isolated quiet period from dominating the ranking.
+
+**Why Tax Efficiency (weight 0.15):**
+- The investor pockets the *net* return at redemption, not the gross. Two funds with identical IR + Sortino but different `tributacao_alvo` give the holder different effective alpha. Ignoring tax means publishing a ranking that doesn't reflect the actual recommendation.
+- Mapping `tributacao_alvo → effective_ir_rate` is deterministic per bucket and lives in `scoring.yaml#tax.rates`. Default rates assume a 3-year holding period (collapses the regressive table to a single rate per bucket).
+- Lower weight than the risk-adjusted metrics because tax is a static modifier — it doesn't say anything about the gestor's skill, only about the legal regime. 15% is enough to break ties between similar IR/Sortino funds in favor of the more tax-efficient one (e.g., LCI Isento beats CDI fund Longo Prazo when alpha is comparable).
+- **Limitation: come-cotas not modeled.** Open-ended non-Isento / non-Previdência funds suffer ~0.5–1 p.p./yr drag from semestral IR antecipation. Caveat documented in ADR-013.
+- **Limitation: benchmark side not tax-adjusted.** A direct CDI investor also pays Longo Prazo (15% on CDB / Tesouro Selic). The current model penalizes Longo Prazo funds vs Isento funds without netting the benchmark, which directionally over-rewards Isento — defensible because the Isento bucket genuinely has a tax advantage that flows through to the end investor.
 
 **Why percentile rank (not minmax):**
 - Outlier-robust: a single fund with extreme composite doesn't squash all others to the floor.
 - Uniform distribution by construction: 50% of eligible funds end below median by definition.
-- Interpretable: score 87 means "beats 87% of peers on the IR + Sortino composite".
+- Interpretable: score 87 means "beats 87% of peers on the IR + Sortino + tax composite".
 
-`information_ratio` is null when a fund has zero tracking error or fewer than 2 valid monthly observations. `sortino_ratio` is null when the fund has no negative excess months (downside_dev = 0) or fewer than 2 valid observations. Funds with **either** metric null get `score = null` (the weighted composite cannot be evaluated), even if eligible by other criteria.
+`information_ratio` is null when a fund has zero tracking error or fewer than 2 valid monthly observations. `sortino_ratio` is null when the fund has no negative excess months (downside_dev = 0) or fewer than 2 valid observations. `tax_efficiency` is null when `tributacao_alvo` maps to `null` in the rate table (Não Aplicável / Outros / Indefinido) or is not declared in the table at all. Funds with **any** of the three metrics null get `score = null` — the weighted composite cannot be evaluated, even if otherwise eligible.
 
 Configuration of metrics, weights, and eligibility lives in `configs/scoring.yaml` — adding a new metric is a 3-step recipe (`attach_<name>` in `gold/_metrics.py`, append to `OUTPUT_COLUMNS`, list in YAML).
 
