@@ -9,6 +9,7 @@ import polars as pl
 from fund_rank.gold._metrics import (
     attach_existing_time,
     attach_information_ratio,
+    attach_sortino_ratio,
     daily_log_returns,
     flag_jumps,
     monthly_returns_from_daily,
@@ -123,3 +124,51 @@ def test_attach_information_ratio_returns_null_for_zero_tracking_error():
     dim = pl.DataFrame({"fund_key": ["F1"], "benchmark": ["CDI"]})
     out = attach_information_ratio(dim, monthly, bench_monthly)
     assert out["information_ratio"][0] is None
+
+
+def test_attach_sortino_ratio_known_fixture():
+    # Excessos mensais: 11 meses de +0.005, 1 mês de -0.010.
+    # neg_excess = [0]*11 + [-0.010]; mean(excess) = (11*0.005 - 0.010)/12 = 0.00375
+    # downside_dev = std([0]*11 + [-0.010]) (sample std)
+    # Sortino_anual = 0.00375 * 12 / (downside_dev * sqrt(12))
+    months = [date(2024, m, 1) for m in range(1, 13)]
+    rets = [0.013] * 11 + [-0.002]  # excess vs 0.008 = +0.005 x11, -0.010 x1
+    monthly = pl.DataFrame({
+        "fund_key": ["F1"] * 12,
+        "year_month": months,
+        "monthly_ret": rets,
+    })
+    bench_monthly = pl.DataFrame({
+        "year_month": months,
+        "benchmark_code": ["CDI"] * 12,
+        "monthly_bench_ret": [0.008] * 12,
+    })
+    dim = pl.DataFrame({"fund_key": ["F1"], "benchmark": ["CDI"]})
+    out = attach_sortino_ratio(dim, monthly, bench_monthly)
+    excess = [r - 0.008 for r in rets]
+    neg = [min(e, 0.0) for e in excess]
+    mean_exc = sum(excess) / 12
+    n = 12
+    mean_neg = sum(neg) / n
+    var = sum((x - mean_neg) ** 2 for x in neg) / (n - 1)
+    dd = var ** 0.5
+    expected = mean_exc * 12.0 / (dd * (12.0 ** 0.5))
+    assert math.isclose(out["sortino_ratio"][0], expected, rel_tol=1e-6)
+
+
+def test_attach_sortino_ratio_returns_null_for_no_downside():
+    # Todos excessos >= 0 → downside_dev = 0 → Sortino é null.
+    months = [date(2024, m, 1) for m in (1, 2, 3, 4)]
+    monthly = pl.DataFrame({
+        "fund_key": ["F1"] * 4,
+        "year_month": months,
+        "monthly_ret": [0.012, 0.013, 0.014, 0.011],
+    })
+    bench_monthly = pl.DataFrame({
+        "year_month": months,
+        "benchmark_code": ["CDI"] * 4,
+        "monthly_bench_ret": [0.008, 0.008, 0.008, 0.008],
+    })
+    dim = pl.DataFrame({"fund_key": ["F1"], "benchmark": ["CDI"]})
+    out = attach_sortino_ratio(dim, monthly, bench_monthly)
+    assert out["sortino_ratio"][0] is None

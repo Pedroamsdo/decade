@@ -118,6 +118,57 @@ def attach_information_ratio(
     return dim_fund.join(ir, on="fund_key", how="left")
 
 
+def attach_sortino_ratio(
+    dim_fund: pl.DataFrame,
+    monthly: pl.DataFrame,
+    bench_monthly: pl.DataFrame,
+) -> pl.DataFrame:
+    """Annualized Sortino Ratio of excess returns vs canonical benchmark.
+
+    Sortino = mean(excess) × 12 / (downside_dev × √12)
+    where downside_dev = std( min(excess, 0) ) over the fund's history.
+
+    Mirrors `attach_information_ratio` but penalizes only negative excess
+    returns — captures asymmetric/downside risk, the gap that pure IR
+    (symmetric tracking error) leaves open. Funds with no downside
+    deviation, fewer than 2 valid months, or non-finite ratios get null.
+    """
+    fund_bench = dim_fund.select(
+        "fund_key", pl.col("benchmark").alias("benchmark_code")
+    )
+    enriched = (
+        monthly.join(fund_bench, on="fund_key", how="left")
+        .join(bench_monthly, on=["year_month", "benchmark_code"], how="left")
+        .filter(
+            pl.col("monthly_ret").is_not_null()
+            & pl.col("monthly_bench_ret").is_not_null()
+        )
+        .with_columns(excess=pl.col("monthly_ret") - pl.col("monthly_bench_ret"))
+        .with_columns(
+            neg_excess=pl.when(pl.col("excess") < 0).then(pl.col("excess")).otherwise(0.0)
+        )
+    )
+    sortino = (
+        enriched.group_by("fund_key")
+        .agg(
+            _mean=pl.col("excess").mean(),
+            _dd=pl.col("neg_excess").std(),
+        )
+        .with_columns(
+            _raw=pl.when((pl.col("_dd").is_not_null()) & (pl.col("_dd") > 0))
+            .then(pl.col("_mean") * 12.0 / (pl.col("_dd") * (12.0 ** 0.5)))
+            .otherwise(None)
+        )
+        .with_columns(
+            sortino_ratio=pl.when(pl.col("_raw").is_finite())
+            .then(pl.col("_raw"))
+            .otherwise(None)
+        )
+        .select("fund_key", "sortino_ratio")
+    )
+    return dim_fund.join(sortino, on="fund_key", how="left")
+
+
 def attach_equity(dim_fund: pl.DataFrame, quotas: pl.DataFrame) -> pl.DataFrame:
     """Latest non-null `vl_patrim_liq` per fund_key."""
     last_pl = (

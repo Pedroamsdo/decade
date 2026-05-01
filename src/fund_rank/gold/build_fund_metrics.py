@@ -29,6 +29,7 @@ from fund_rank.gold._metrics import (
     attach_existing_time,
     attach_information_ratio,
     attach_nr_cotst,
+    attach_sortino_ratio,
     daily_log_returns,
     flag_jumps,
     monthly_returns_from_daily,
@@ -49,6 +50,7 @@ OUTPUT_COLUMNS: list[str] = [
     "nr_cotst",
     "existing_time",
     "information_ratio",
+    "sortino_ratio",
     "score",
 ]
 
@@ -194,6 +196,7 @@ def run(settings: Settings, as_of: date) -> Path:
     metrics = (
         dim_fund
         .pipe(attach_information_ratio, monthly, bench_monthly)
+        .pipe(attach_sortino_ratio, monthly, bench_monthly)
         .pipe(attach_equity, quotas_keyed)
         .pipe(attach_nr_cotst, quotas_keyed)
         .pipe(attach_existing_time, as_of)

@@ -16,17 +16,17 @@ ADRs for non-obvious choices in `fund_rank`. Each decision lists the alternative
 
 ---
 
-## ADR-003 · CDI as the sole benchmark in v1
+## ADR-003 · Canonical benchmark per ANBIMA classification (not CDI universal)
 
-**Status:** accepted · 2026-04-25
+**Status:** accepted · 2026-05-01 (supersedes earlier "CDI universal in v1")
 
-**Context.** Long-duration RF Indexados / IMA-B funds and short-duration Caixa funds shouldn't be measured against the same benchmark. ANBIMA publishes IMA-B / IMA-B 5 / IMA-B 5+ / IRF-M as proper benchmarks per duration bucket — but those feeds are paid-only.
+**Context.** Long-duration RF Indexados / IMA-B funds and short-duration Caixa funds shouldn't be measured against the same benchmark. Using CDI universally and segmenting by duration was the v0 approach — it bounded the mismatch inside each segment but still mis-rated long-duration funds within their segment.
 
-**Decision.** Use BCB SGS series 12 (CDI) as the universal benchmark in v1. Mitigate the misfit by *segmenting the universe by duration bucket* (Caixa = D+1, RF Geral = up to D+30, Qualificado = no liquidity cap) so the benchmark mismatch is bounded inside each segment.
+**Decision.** Each fund is mapped to a **canonical benchmark code** (CDI, IPCA, IMA-B, IMA-B 5, IMA-B 5+, IRF-M, IMA Geral, IMA-S, …) by its ANBIMA classification (`silver/_benchmark_mapping.py`). Excess returns and IR / Sortino are computed against that canonical benchmark, not against CDI universally. ANBIMA index histories are sourced from manual XLS drops in `data/bronze/anbima_indices/dropped/` (no paid-feed dependency); CDI / SELIC / IPCA come from BCB SGS.
 
-**Alternative.** Approximate IMA-B from Tesouro Direto prices. Rejected for v1: implementation is non-trivial, and there's no precedent of using TD-derived IMA-B in production. Backlog.
+**Alternative.** Keep CDI universal + segment by duration. Rejected because (a) the new benchmark mapping is config-driven and lighter than maintaining segments, and (b) ANBIMA index histories turned out to be obtainable as a manual XLS drop, removing the paid-feed blocker.
 
-**Open question.** Should `pct_cdi` continue to drive Caixa scoring once IMA-B is wired? Probably not for the long-duration Indexados in RF Geral, but yes for Caixa where CDI tracking is the actual goal.
+**Consequence.** The ranking pipeline no longer needs duration-bucket segmentation — see ADR-005.
 
 ---
 
@@ -42,13 +42,22 @@ ADRs for non-obvious choices in `fund_rank`. Each decision lists the alternative
 
 ---
 
-## ADR-005 · Z-scores intra-segment (not global)
+## ADR-005 · Single eligible universe, z-scores global, profile filtering as post-step
 
-**Status:** accepted · 2026-04-25
+**Status:** accepted · 2026-05-01 (supersedes earlier "Z-scores intra-segment")
 
-**Context.** Metrics like `tracking_error_cdi_12m` differ by orders of magnitude between segments: a Caixa fund has TE ~ 5 bps, a Qualificado credit fund has TE ~ 5 %. A global z-score would put every Caixa fund near the "best" pole and every Qualificado fund near the "worst", drowning the actual relative performance.
+**Context.** The earlier design segmented funds into 3 buckets (Caixa / RF Geral / Qualificado) by duration + ANBIMA prefix and ranked each bucket independently with its own weights. Justified at the time because everything was measured against CDI (ADR-003 v0) — segments contained the benchmark mismatch.
 
-**Decision.** Z-scores are computed *within each segment*. Top-N selection is per segment.
+Once each fund got its own canonical benchmark (ADR-003 current), excess returns become directly comparable across the whole RF universe — IR of a CDI-tracker and IR of an IMA-B fund both measure "alpha vs the right yardstick". Segmentation became redundant scaffolding.
+
+**Decision.** A single eligible universe. The composite (`0.7 × z(IR) + 0.3 × z(Sortino)`) is z-scored over that single universe, and `score = percentile_rank(composite) × 100`. The 3 profile views in `ranking.md` (Geral / Qualificado / Profissional) are pure post-filters on `publico_alvo` — they show different slices of the same global score, never re-rank.
+
+**Why this is better.**
+- No tuning of per-segment weights.
+- Investor profiles in `ranking.md` reflect a real CVM access rule, not an analyst-chosen segmentation.
+- Adding new metrics is config-only (one entry in `scoring.yaml`); no segment-specific weight matrix to balance.
+
+**Trade-off.** A Caixa-style fund and a long-duration IMA-B fund end up on the same leaderboard. This is OK because each is rated against its own benchmark — the score answers "did you beat your benchmark?" — and the profile filter handles "is this fund accessible to me?".
 
 ---
 
@@ -58,7 +67,7 @@ ADRs for non-obvious choices in `fund_rank`. Each decision lists the alternative
 
 **Context.** Beginners often build performance views by deducting `taxa_adm` from gross returns. CVM's `vl_quota` is already net of *realized* admin and performance fees, so deducting again double-counts costs.
 
-**Decision.** Past returns are read directly from `vl_quota`. Forward-looking cost (`taxa_adm_pct` + estimated `taxa_perfm` carry on excess) enters as a *signal* in the score, not as a return adjustment. The estimated perf carry is flagged with `pf_estimate_quality ∈ {clean, hwm_flagged}`.
+**Decision.** Past returns are read directly from `vl_quota`. Forward-looking fee adjustment (estimating future perf-fee carry on excess) is **not** in the score — the v0 plan to ingest it as a signal was retired when the score was simplified to a metric composite (IR + Sortino). Fee data still flows through silver for reporting / display.
 
 ---
 
@@ -108,12 +117,14 @@ ADRs for non-obvious choices in `fund_rank`. Each decision lists the alternative
 
 ---
 
-## ADR-011 · Bronze layout: `source/ingested_at=DATE/competence=YYYY-MM/raw.ext`
+## ADR-011 · Bronze layout: `source/[competence=YYYY-MM/]raw.ext` (canonical, no `ingested_at`)
 
-**Status:** accepted · 2026-04-25
+**Status:** accepted · 2026-05-01 (supersedes earlier `ingested_at=DATE/...` layout)
 
-**Context.** Some sources are snapshots (`cad_fi_hist.zip`, `registro_fundo_classe.zip`), some are monthly (`inf_diario_fi_YYYYMM.zip`), some are dynamic ranges (`bcb_cdi` per query interval).
+**Context.** Some sources are snapshots (`cad_fi_hist.zip`, `registro_fundo_classe.zip`), some are monthly (`inf_diario_fi_YYYYMM.zip`), some are dynamic ranges (`bcb_cdi` per query interval). The earlier design partitioned every source by `ingested_at=<today>` to keep an audit trail of every fetch — but this ballooned bronze on idempotent re-runs and made silver builds harder (had to pick "the latest `ingested_at` ≤ as_of").
 
-**Decision.** Universal partition scheme: `{source}/ingested_at={today}/[competence={key}/]raw.{ext}`. The optional `competence` partition is set when the source has a natural data period (month / year / range). A `_manifest.json` sidecar records `(url, etag, last_modified, sha256, byte_size, ingested_at, status)`.
+**Decision.** A single canonical location per source: `{source}/[competence={key}/]raw.{ext}`. No `ingested_at` partitions. The `_manifest.json` sidecar records the run's `(url, etag, last_modified, sha256, byte_size, ingested_at, status)` — so the audit trail lives in the manifest, not the path.
 
-This makes it trivial to (a) replay a build at an old `as_of` by reading the latest partition with `ingested_at <= replay_date`, and (b) audit when a value changed by listing the partitions for a `competence`.
+Idempotency is enforced by sha256 (ADR-008): if the new payload matches the manifest's hash, the file isn't rewritten. Etag is the fast pre-check (`If-None-Match` returns 304 → skip body entirely).
+
+**Trade-off.** Replaying a historical fetch byte-for-byte is no longer possible — once a CVM file is republished and the hash differs, the old version is overwritten. The manifest's `last_modified` and `sha256` history (kept in git on the manifest file when changes are committed) is the audit substitute. For this project the trade-off is correct: the case study runs against current snapshots, not historical replays.

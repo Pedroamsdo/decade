@@ -6,11 +6,11 @@
 
 - Silver dimension tables (`class_funds`, `subclass_funds` and their RF subsets) sit around 41 k rows total — under 50 MB Parquet zstd-compressed.
 - Each `INF_DIARIO` monthly zip is ~10 MB compressed; CAD ~18 MB.
-- Build (silver + gold + rank + report) over 7 years runs in **< 60 s** on an 8-core M-series Mac with 16 GB RAM.
-- Bronze partitioning is additive: re-runs that hit a `304 Not Modified` write nothing.
-- The full ingest of 7 years (84 monthly INF_DIARIO + 2 yearly HIST + CAD + CDI) downloads ~700 MB and finishes in ~5 minutes (network-bound).
+- Build (silver + gold + rank + report) over 7 years runs in **~2 min** on an 8-core M-series Mac with 16 GB RAM (excluding bronze re-fetch).
+- Bronze is canonical (single location per source); re-runs use sha256 to short-circuit unchanged files (ADR-008).
+- The full ingest of 7 years (84 monthly INF_DIARIO + 2 yearly HIST + CAD + CDI + 6 ANBIMA index XLS drops) downloads ~1.5 GB and finishes in ~30–60 minutes on first run (network-bound).
 
-This is the default `make all AS_OF=2025-12-31` flow. No external dependencies beyond Python 3.9 + venv.
+This is the default `fund-rank --as-of 2025-12-31` flow. No external dependencies beyond Python 3.9 + venv.
 
 ## 10× — daily ranking, S3-backed
 
@@ -20,24 +20,23 @@ When the cadence becomes daily and we want history to live longer than a laptop 
 |---|---|
 | Set `data_root: s3://decade-fund-rank-prod/data` in `configs/pipeline.yaml` | 5 min |
 | Configure AWS credentials (env vars or IAM role) | 5 min |
-| Run Prefect 3.x flows on a `process` work-pool inside ECS or k8s | 1 hr |
+| Schedule `fund-rank --as-of <date>` on a worker (ECS / cron / Prefect / Airflow) | 1 hr |
 
-The code does **not** change: `fsspec` abstracts the filesystem, and Polars / DuckDB read/write Parquet over s3 directly.
+The code does **not** change: `fsspec` abstracts the filesystem, and Polars / DuckDB read/write Parquet over s3 directly. The CLI entrypoint (`fund-rank`) is single-shot and idempotent — easy to wrap in any scheduler.
 
-The Prefect flows live in `src/fund_rank/flows/`:
-
-- `daily_ingest` — cron `0 6 * * 1-5 BRT`. Tasks: download CAD, registro_classe, CDI, INF_DIARIO (current month + M-1 for late corrections). Each is idempotent (etag/sha256 check).
-- `weekly_rank` — cron `0 7 * * 1 BRT`. Computes `as_of = last completed business-day end-of-month`, runs silver → gold → rank → report. Output published to `gold/` and `reports/` partitions.
-- `backfill` — manual entry point that accepts `--from / --to` to reprocess gold from immutable bronze.
+Suggested cadence:
+- **daily** (06:00 BRT, M-F) — refetch CAD, registro_classe, CDI, INF_DIARIO (current month + M-1 for late corrections). Each source is idempotent via etag/sha256 (ADR-008).
+- **weekly** (07:00 BRT, Mon) — pick `as_of = last completed end-of-month` and run the full pipeline; publish `gold/` + `ranking.md` + `reports/`.
+- **backfill** — same CLI, called once per historical `as_of` from immutable bronze.
 
 ### Monitoring
 
-- Prefect Cloud notifications (Slack) on flow failure.
-- Data contracts (per ADR-008):
+- Alert on CLI exit code != 0.
+- Data contract checks live in `silver/_quality_report.py` and feed the consolidated `reports/as_of=YYYY-MM-DD/data_quality.md`. Hook these into the scheduler:
   - `cad_fi.csv` ingested_at must be ≤ 48 h old.
   - `inf_diario` row count ≥ 80 % of the 30-day rolling median (alert on drop).
   - Coverage ≥ 95 % of active RF classes have quotas in the reference month.
-- Schema contracts: pydantic v2 models exported to `docs/contracts/*.json` on each build; CI fails if schema drifts without a `CONTRACT_VERSION` bump.
+- Schema contracts: pydantic v2 models in `src/fund_rank/contracts/` (currently `class_funds.py`, `subclass_funds.py`) — extend with a gold contract before exposing to downstream consumers.
 
 ## 100× — distributed compute
 
@@ -46,11 +45,11 @@ When the universe widens (e.g., add multimercado, ações, FII, FIDC) or the cad
 | Change | Notes |
 |---|---|
 | Treat `data/silver/*.parquet` as **external tables** in BigQuery, Athena, or Snowflake | Same Parquet, no rewrite |
-| Move heavy aggregations (`gold/compute_metrics`) from Polars to SQL views | DuckDB → BigQuery dialect; mostly direct translations |
+| Move heavy aggregations (`gold/build_fund_metrics`) from Polars to SQL views | DuckDB → BigQuery dialect; mostly direct translations |
 | Materialize `gold/fund_metrics` via `dbt` against the warehouse | Adds dependency surface; only worth it at 100× |
-| Worker pool: Prefect agents on Kubernetes Engine, autoscaling per queue depth | |
+| Worker pool: Prefect / Airflow agents on Kubernetes, autoscaling per queue depth | |
 
-The contracts in `src/fund_rank/contracts/gold.py` (`FundMetrics`, `RankingEntry`) are the **stability layer** — downstream services consume the same schema regardless of where the build runs.
+The contracts in `src/fund_rank/contracts/` (currently silver dimensions) should grow a `gold.py` with `FundMetrics` + `RankingEntry` schemas before opening the gold tables to external consumers — those become the **stability layer** so downstream services consume the same schema regardless of where the build runs.
 
 ## What does not scale
 

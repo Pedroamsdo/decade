@@ -100,7 +100,7 @@ Two parquet tables: `gold/fund_metrics` (score) and `gold/validacao` (calendar-y
 ### `gold/fund_metrics/as_of=YYYY-MM-DD/data.parquet`
 One row per investable fund (class without subclasses **or** subclass). Granularity key is `(cnpj_classe, id_subclasse_cvm)` (null for classes). Returns are computed over the entire daily history in `silver/quota_series` up to `as_of`, after dropping daily returns flagged as jumps (|z|>5σ on a 60-day rolling window).
 
-**9 columns:**
+**10 columns:**
 
 | column | type | description |
 |---|---|---|
@@ -112,23 +112,30 @@ One row per investable fund (class without subclasses **or** subclass). Granular
 | `nr_cotst` | int64 | latest non-null cotistas; 0 if no quotes — **filter only** |
 | `existing_time` | int64 | days between `data_de_inicio` and `as_of` — **filter only** |
 | `information_ratio` | float64 | `mean(excess) / std(excess) × √12` (annualized, vs canonical benchmark) |
-| `score` | float64 | percentile rank of `information_ratio` over the eligible universe × 100 |
+| `sortino_ratio` | float64 | `mean(excess) × 12 / (std(min(excess, 0)) × √12)` (annualized, downside-only) |
+| `score` | float64 | percentile rank of the weighted composite (`0.7 × z(IR) + 0.3 × z(Sortino)`) over the eligible universe × 100 |
 
 #### Score recipe
 
-The score is the **annualized Information Ratio** ranked across the eligible universe — the CFA-standard ratio for active management evaluation in fixed income.
+The score combines **two metrics** of excess return vs the fund's canonical benchmark — IR for consistency of alpha, Sortino for asymmetric downside risk. This is the CFA L3 framework for fixed-income fund selection: IR alone treats upside and downside vol symmetrically, which is wrong for RF distributions (fat left tails from credit events and duration shocks).
 
 ```
-excess[t]      = monthly_ret_fund[t] − monthly_ret_bench[t]
-IR_anualizado  = mean(excess) / std(excess) × √12
+excess[t]        = monthly_ret_fund[t] − monthly_ret_bench[t]
 
-eligible       = situacao == "Em Funcionamento Normal"
-              AND nr_cotst > 1000
-              AND existing_time >= 252       (≈ 1 year of history)
-              AND equity >= R$ 50_000_000
+IR_anualizado    = mean(excess) / std(excess) × √12              # weight 0.7
+Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)  # weight 0.3
 
-score          = round(percentile_rank(IR over eligible) × 100, 2)
-                 # null for funds outside the eligible universe
+composite        = 0.7 × z(IR) + 0.3 × z(Sortino)
+                   # z-scores taken over the eligible universe so the two
+                   # metrics enter on comparable scales
+
+eligible         = situacao == "Em Funcionamento Normal"
+                AND nr_cotst > 1000
+                AND existing_time >= 252       (≈ 1 year of history)
+                AND equity >= R$ 50_000_000
+
+score            = round(percentile_rank(composite over eligible) × 100, 2)
+                   # null for funds outside the eligible universe
 ```
 
 `monthly_bench_ret` uses each fund's canonical benchmark code (CDI, IPCA, IMA-B, IRF-M, …), built by `gold/_benchmark_returns.py` from `silver/index_series` at monthly granularity:
@@ -136,20 +143,27 @@ score          = round(percentile_rank(IR over eligible) × 100, 2)
 - IMA-* / IRF-M (`index_level`): `level[m]/level[m−1] − 1`.
 - IPCA/INPC/IGP-M (`percent_per_month`): published value / 100.
 
-**Why Information Ratio:**
-- CFA Level 2 standard for active management vs benchmark.
+**Why Information Ratio (weight 0.7):**
+- CFA standard for active management vs benchmark.
 - Tracking error (denominator) naturally normalizes funds tightly coupled to the benchmark.
 - Allows fair comparison across funds with different benchmarks (each rated against its own).
 - Sign-preserving: funds losing to the benchmark get IR < 0 → low percentile.
 
+**Why Sortino Ratio (weight 0.3):**
+- Penalizes only negative excess returns — captures the asymmetric tail risk that defines RF (drawdowns from credit events, marcação a mercado shocks).
+- Closes the gap left by IR's symmetric tracking error: two funds with the same IR can differ wildly in left-tail behavior.
+- Lower weight than IR because Sortino is unstable when a fund has few months below benchmark (denominator → 0). Z-score normalization tames the scale, but the 30% cap prevents an isolated quiet period from dominating the ranking.
+
 **Why percentile rank (not minmax):**
-- Outlier-robust: a single fund with extreme IR doesn't squash all others to the floor.
+- Outlier-robust: a single fund with extreme composite doesn't squash all others to the floor.
 - Uniform distribution by construction: 50% of eligible funds end below median by definition.
-- Interpretable: score 87 means "beats 87% of peers in IR".
+- Interpretable: score 87 means "beats 87% of peers on the IR + Sortino composite".
 
-`information_ratio` is null when a fund has zero tracking error (perfectly tracking the benchmark) or fewer than 2 valid monthly observations. These funds get `score = null` even if eligible by other criteria.
+`information_ratio` is null when a fund has zero tracking error or fewer than 2 valid monthly observations. `sortino_ratio` is null when the fund has no negative excess months (downside_dev = 0) or fewer than 2 valid observations. Funds with **either** metric null get `score = null` (the weighted composite cannot be evaluated), even if eligible by other criteria.
 
-Quality report at `reports/as_of=YYYY-MM-DD/fund_metrics_quality.md`.
+Configuration of metrics, weights, and eligibility lives in `configs/scoring.yaml` — adding a new metric is a 3-step recipe (`attach_<name>` in `gold/_metrics.py`, append to `OUTPUT_COLUMNS`, list in YAML).
+
+Quality coverage at `reports/as_of=YYYY-MM-DD/data_quality.md` (single consolidated report covering every silver and gold table).
 
 ### `gold/validacao/as_of=YYYY-MM-DD/data.parquet`
 Auxiliary table for sanity-checking the score against the raw 2025 calendar-year return. One row per investable RF fund (5,849 = 5,623 classes + 226 subclasses), 5 columns:

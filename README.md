@@ -30,13 +30,19 @@ If you upgraded from the partitioned-bronze version, run `rm -rf data/bronze/` o
 
 ## Score recipe (high level)
 
-Single metric: **Information Ratio (IR) anualizado** vs the fund's canonical benchmark (CDI / IPCA / IMA-B / etc., mapped in `silver/_benchmark_mapping.py`).
+Composite of **two metrics** vs the fund's canonical benchmark (CDI / IPCA / IMA-B / etc., mapped in `silver/_benchmark_mapping.py`), aligned with the CFA L3 framework for fixed-income fund selection.
 
 ```
-excess[t]      = monthly_ret_fund[t] − monthly_ret_bench[t]
-IR_anualizado  = mean(excess) / std(excess) × √12
-score          = percentile_rank(IR over eligible) × 100
+excess[t]        = monthly_ret_fund[t] − monthly_ret_bench[t]
+
+IR_anualizado    = mean(excess) / std(excess) × √12              # weight 0.7
+Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)  # weight 0.3
+
+composite        = 0.7 × z(IR) + 0.3 × z(Sortino)   # z-score over the eligible universe
+score            = percentile_rank(composite) × 100
 ```
+
+**Why two metrics.** Information Ratio measures the consistency of active return, but its symmetric tracking-error denominator treats upside and downside vol equally — and ignores the asymmetry that dominates fixed-income returns (credit events, duration shocks). The Sortino Ratio fixes that gap by penalizing only negative excess returns, so funds with fat left tails get discounted even when their IR looks fine. The 70/30 split keeps consistency of alpha as the primary driver while making sure drawdown risk shows up in the score. Weights and metrics are config-driven in `configs/scoring.yaml`.
 
 Eligibility: `situacao = "Em Funcionamento Normal"`, `nr_cotst > 1,000`, `existing_time ≥ 252` dias, `equity ≥ R$ 50 M`. Funds outside the criteria get `score = null`.
 

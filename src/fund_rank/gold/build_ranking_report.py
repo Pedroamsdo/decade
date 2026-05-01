@@ -96,14 +96,14 @@ def _profile_section(
     top = profile_df.sort("score", descending=True).head(top_n)
 
     section.append(
-        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Cotistas | Idade (d) | IR (anual) | Score |"
+        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Cotistas | Idade (d) | IR (anual) | Sortino (anual) | Score |"
     )
     section.append(
-        "|---|---|---|---|---|---:|---:|---:|---:|---:|"
+        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|"
     )
     for i, row in enumerate(top.iter_rows(named=True), start=1):
         section.append(
-            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {cot} | {age} | {ir} | **{sc}** |".format(
+            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {cot} | {age} | {ir} | {sortino} | **{sc}** |".format(
                 i=i,
                 fund=_fund_label(row),
                 name=_fund_name(row),
@@ -113,33 +113,10 @@ def _profile_section(
                 cot=_format_int(row.get("nr_cotst")),
                 age=_format_int(row["existing_time"]),
                 ir=_format_score(row.get("information_ratio")),
+                sortino=_format_score(row.get("sortino_ratio")),
                 sc=_format_score(row["score"]),
             )
         )
-    section.append("")
-    return section
-
-
-def _summary_section(eligible: pl.DataFrame) -> list[str]:
-    section: list[str] = []
-    s = eligible["score"].drop_nulls()
-    if s.len() == 0:
-        return ["_Sem dados de score._\n"]
-
-    section.append("## Sumário do score (universo elegível)\n")
-    section.append(
-        f"- Min / Mediana / Média / Max: **{s.min():.2f}** / **{s.median():.2f}** / "
-        f"**{s.mean():.2f}** / **{s.max():.2f}**"
-    )
-    buckets = [(0, 20), (20, 40), (40, 60), (60, 80), (80, 100.01)]
-    section.append("")
-    section.append("| Bucket | Fundos | % |")
-    section.append("|---|---:|---:|")
-    for lo, hi in buckets:
-        n = int(s.filter((s >= lo) & (s < hi)).len())
-        pct = n / s.len() * 100.0
-        hi_str = "100" if hi > 100 else f"{hi:g}"
-        section.append(f"| {lo:g}–{hi_str} | {n:,} | {pct:.2f}% |")
     section.append("")
     return section
 
@@ -193,65 +170,52 @@ def run(settings: Settings, as_of: date, top_n: int | None = None) -> Path:
 
     total = df.height
     eligible = df.filter(pl.col("score").is_not_null())
-    excluded = total - eligible.height
 
     elig = settings.scoring.eligibility
     lines: list[str] = []
     lines.append(f"# Fund Ranking — Renda Fixa (as_of = {as_of.isoformat()})\n")
-    lines.append("## Filtro de elegibilidade\n")
-    lines.append(
-        "O `score` em `gold/fund_metrics` é calculado **apenas** para fundos "
-        "que passam pelos 4 critérios abaixo (os demais ficam com `score = null`):"
-    )
-    lines.append("")
-    lines.append(f"- `situacao = \"{elig.situacao}\"`")
-    lines.append(f"- `nr_cotst > {elig.nr_cotst_min:,}` cotistas")
-    lines.append(
-        f"- `existing_time ≥ {elig.existing_time_min_days}` dias "
-        f"(≈ {elig.existing_time_min_days / 252:.1f} ano de história)"
-    )
-    lines.append(f"- `equity ≥ R$ {elig.equity_min_brl:,.0f}` (PL mínimo)")
-    lines.append("")
-    lines.append(
-        f"**Universo elegível: {eligible.height:,} de {total:,} fundos** "
-        f"({excluded:,} fora dos critérios)."
-    )
-    lines.append("")
 
     lines.append("## Como o score é calculado\n")
     lines.append(
-        "Métrica única: **Information Ratio (IR) anualizado** vs benchmark canônico "
-        "do fundo (CDI / IPCA / IMA-B / etc., mapeado em `silver/_benchmark_mapping`)."
+        "Composto de **duas métricas** vs o benchmark canônico do fundo "
+        "(CDI / IPCA / IMA-B / etc., mapeado em `silver/_benchmark_mapping`), "
+        "alinhado ao framework CFA L3 para seleção de fundos de renda fixa:"
     )
     lines.append("")
     lines.append("```")
-    lines.append("excess[t]      = monthly_ret_fund[t] − monthly_ret_bench[t]")
-    lines.append("IR_anualizado  = mean(excess) / std(excess) × √12")
-    lines.append("score          = percentile_rank(IR over eligible) × 100")
+    lines.append("excess[t]        = monthly_ret_fund[t] − monthly_ret_bench[t]")
+    lines.append("")
+    lines.append("IR_anualizado    = mean(excess) / std(excess) × √12              # peso 0.7")
+    lines.append("Sortino_anual    = mean(excess) × 12 / (std(min(excess, 0)) × √12)  # peso 0.3")
+    lines.append("")
+    lines.append("composite        = 0.7 × z(IR) + 0.3 × z(Sortino)   # z-score sobre o universo elegível")
+    lines.append("score            = percentile_rank(composite) × 100")
     lines.append("```")
     lines.append("")
     lines.append(
-        "Score 95 → o fundo bate 95% dos pares elegíveis em IR. Padrão CFA "
-        "para gestão ativa em renda fixa."
+        "**Por que duas métricas.** O IR mede consistência de alpha, mas trata "
+        "vol de upside e downside igualmente — ignora a assimetria típica de "
+        "retornos de RF (eventos de crédito, choques de duration). O Sortino "
+        "penaliza apenas vol negativa, capturando o risco de cauda esquerda. "
+        "Os pesos (70/30) priorizam consistência de alpha, mas descontam fundos "
+        "com drawdowns severos."
     )
     lines.append("")
     lines.append(
-        "Detalhes de tratamento de nulls e outliers em `docs/data_contracts.md` "
-        "(seção Gold layer)."
+        f"**Elegibilidade.** Score só é calculado para fundos com "
+        f"`situacao = \"{elig.situacao}\"`, `nr_cotst > {elig.nr_cotst_min:,}`, "
+        f"`existing_time ≥ {elig.existing_time_min_days}` dias e "
+        f"`equity ≥ R$ {elig.equity_min_brl:,.0f}` "
+        f"({eligible.height:,} de {total:,} fundos passam)."
     )
     lines.append("")
-
-    lines.extend(_summary_section(eligible))
 
     lines.append("---\n")
     lines.append("## Top-5 por perfil de investidor\n")
     lines.append(
-        "Cada perfil enxerga o pool dos fundos cujo `publico_alvo` ele pode acessar "
-        "(hierarquia CVM padrão — Profissional ⊃ Qualificado ⊃ Geral):\n\n"
-        "- **Geral** → só fundos com `publico_alvo = \"Público Geral\"`.\n"
-        "- **Qualificado** → fundos `\"Público Geral\"` + `\"Qualificado\"`.\n"
-        "- **Profissional** → todos os tipos (`\"Público Geral\"` + `\"Qualificado\"` + `\"Profissional\"`).\n\n"
-        "Fundos sem `publico_alvo` declarado (`null`) ficam fora das três listas."
+        "Hierarquia CVM padrão (Profissional ⊃ Qualificado ⊃ Geral): "
+        "**Geral** vê só `\"Público Geral\"`; **Qualificado** vê `\"Público Geral\"` + `\"Qualificado\"`; "
+        "**Profissional** vê todos os tipos."
     )
     lines.append("")
     for label, accessible in PROFILES:
@@ -263,6 +227,6 @@ def run(settings: Settings, as_of: date, top_n: int | None = None) -> Path:
         "gold.ranking_report.written",
         path=str(out),
         eligible=eligible.height,
-        excluded=excluded,
+        excluded=total - eligible.height,
     )
     return out
