@@ -45,12 +45,14 @@ def monthly_benchmark_returns(index_series: pl.DataFrame) -> pl.DataFrame:
         if col not in df.columns:
             continue
         if unit == "percent_per_day":
-            # CDI / SELIC: daily rate (e.g. 0.000551 ≈ 0.0551% a.d.).
-            # Monthly compound: prod(1 + r_d) - 1.
+            # CDI / SELIC: BCB SGS publishes the daily rate in PERCENT
+            # (e.g. 0.0551 = 0.0551% per day, which is ≈ 14.9% a.a. composed).
+            # We must divide by 100 to convert to fraction before compounding.
+            # Monthly compound: prod(1 + r_d/100) - 1.
             piece = (
                 df.filter(pl.col(col).is_not_null())
                   .group_by("year_month")
-                  .agg(monthly_bench_ret=((pl.col(col) + 1.0).product() - 1.0))
+                  .agg(monthly_bench_ret=((pl.col(col) / 100.0 + 1.0).product() - 1.0))
             )
         elif unit == "percent_per_month":
             # IPCA / INPC / IGP-M: published once per month as percent (e.g. 0.62).

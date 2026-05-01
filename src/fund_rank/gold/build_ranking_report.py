@@ -61,8 +61,8 @@ def _format_str(v: str | None) -> str:
     return v if v else ""
 
 
-def _format_cv(v: float | None) -> str:
-    return "" if v is None else f"{v:.2f}"
+def _format_vol(v: float | None) -> str:
+    return "" if v is None else f"{v * 100:.2f}%"
 
 
 def _fund_label(row: dict) -> str:
@@ -96,28 +96,23 @@ def _profile_section(
     top = profile_df.sort("score", descending=True).head(top_n)
 
     section.append(
-        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Cotistas | Idade (d) | CAGR | Hit rate | CV | Max drawdown | Score |"
+        "| # | Fundo | Nome | Classificação ANBIMA | Benchmark | Equity | Cotistas | Idade (d) | IR (anual) | Score |"
     )
     section.append(
-        "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"
+        "|---|---|---|---|---|---:|---:|---:|---:|---:|"
     )
     for i, row in enumerate(top.iter_rows(named=True), start=1):
         section.append(
-            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {cot} | {age} | {cagr} | {hit} | {cv} | {dd} | **{sc}** |".format(
+            "| {i} | {fund} | {name} | {anbima} | {bench} | {eq} | {cot} | {age} | {ir} | **{sc}** |".format(
                 i=i,
                 fund=_fund_label(row),
                 name=_fund_name(row),
-                # `anbima_classification` e `benchmark_canonico` vêm do silver
-                # (treated tables) por join no `run()` — não estão em fund_metrics.
                 anbima=_format_str(row.get("anbima_classification")),
                 bench=_format_str(row.get("benchmark_canonico")),
                 eq=_format_money(row["equity"]),
                 cot=_format_int(row.get("nr_cotst")),
                 age=_format_int(row["existing_time"]),
-                cagr=_format_pct(row.get("cagr")),
-                hit=_format_pct(row.get("hit_rate")),
-                cv=_format_cv(row.get("cv_metric")),
-                dd=_format_pct(row.get("max_drawdown")),
+                ir=_format_score(row.get("information_ratio")),
                 sc=_format_score(row["score"]),
             )
         )
@@ -195,53 +190,43 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
     )
 
     total = df.height
-    sit_ok = df.filter(pl.col("situacao") == "Em Funcionamento Normal")
-    excluded_situacao = total - sit_ok.height
-    eligible = sit_ok.filter(pl.col("nr_cotst") > 1000)
-    excluded_cotistas = sit_ok.height - eligible.height
+    eligible = df.filter(pl.col("score").is_not_null())
+    excluded = total - eligible.height
 
     lines: list[str] = []
     lines.append(f"# Fund Ranking — Renda Fixa (as_of = {as_of.isoformat()})\n")
     lines.append("## Filtro de elegibilidade\n")
-    lines.append("Aplicados em sequência:\n")
     lines.append(
-        f"1. `situacao = \"Em Funcionamento Normal\"` → "
-        f"**{sit_ok.height:,}** de **{total:,}** "
-        f"({excluded_situacao:,} excluídos)."
-    )
-    lines.append(
-        f"2. `nr_cotst > 1000` → "
-        f"**{eligible.height:,}** de **{sit_ok.height:,}** "
-        f"({excluded_cotistas:,} excluídos por terem ≤ 1.000 cotistas)."
+        "O `score` em `gold/fund_metrics` é calculado **apenas** para fundos "
+        "que passam pelos 4 critérios abaixo (os demais ficam com `score = null`):"
     )
     lines.append("")
+    lines.append("- `situacao = \"Em Funcionamento Normal\"`")
+    lines.append("- `nr_cotst > 1.000` cotistas")
+    lines.append("- `existing_time ≥ 252` dias (≈ 1 ano de história)")
+    lines.append("- `equity ≥ R$ 50.000.000` (PL mínimo)")
+    lines.append("")
     lines.append(
-        f"**Universo final do ranking: {eligible.height:,} fundos.**\n"
+        f"**Universo elegível: {eligible.height:,} de {total:,} fundos** "
+        f"({excluded:,} fora dos critérios)."
     )
+    lines.append("")
 
     lines.append("## Como o score é calculado\n")
     lines.append(
-        "Lê `gold/fund_metrics` (a coluna `score` já vem calculada). Resumo da fórmula:"
+        "Métrica única: **Information Ratio (IR) anualizado** vs benchmark canônico "
+        "do fundo (CDI / IPCA / IMA-B / etc., mapeado em `silver/_benchmark_mapping`)."
     )
     lines.append("")
+    lines.append("```")
+    lines.append("excess[t]      = monthly_ret_fund[t] − monthly_ret_bench[t]")
+    lines.append("IR_anualizado  = mean(excess) / std(excess) × √12")
+    lines.append("score          = percentile_rank(IR over eligible) × 100")
+    lines.append("```")
+    lines.append("")
     lines.append(
-        "- **Numerador (retorno):** soma de `hit_rate` + `cagr` (ambos clipados a ±3σ "
-        "e normalizados 0-1; nulls = 0)."
-    )
-    lines.append(
-        "- **Denominador (risco):** **multiplicação** de dois subgrupos, cada um "
-        "soma normalizada de duas métricas:"
-    )
-    lines.append(
-        "  - **Qualidade do veículo (fragilidade):** `equity` e `existing_time` "
-        "invertidos (`1 − x_norm`) — alto PL/idade reduz risco."
-    )
-    lines.append(
-        "  - **Volatilidade:** `cv_metric` + `max_drawdown` invertido."
-    )
-    lines.append(
-        "- **Score = `retorno / risco` → outliers (`|z| > 3` no `score_raw`) viram 0 → "
-        "minmax → × 100**. Quando `risco == 0`, `score_raw = 0` (guard de divisão por zero)."
+        "Score 95 → o fundo bate 95% dos pares elegíveis em IR. Padrão CFA "
+        "para gestão ativa em renda fixa."
     )
     lines.append("")
     lines.append(
@@ -272,7 +257,6 @@ def run(settings: Settings, as_of: date, top_n: int = 5) -> Path:
         "gold.ranking_report.written",
         path=str(out),
         eligible=eligible.height,
-        excluded_situacao=excluded_situacao,
-        excluded_cotistas=excluded_cotistas,
+        excluded=excluded,
     )
     return out

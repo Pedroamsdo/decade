@@ -7,10 +7,8 @@ from datetime import date, timedelta
 import polars as pl
 
 from fund_rank.gold._metrics import (
-    attach_cagr,
-    attach_cv_metric,
     attach_existing_time,
-    attach_max_drawdown,
+    attach_information_ratio,
     daily_log_returns,
     flag_jumps,
     monthly_returns_from_daily,
@@ -33,7 +31,6 @@ def test_daily_log_returns_first_row_is_null():
     )
     out = daily_log_returns(d)
     assert out["log_ret"][0] is None
-    # log(101/100) ≈ 0.00995
     assert math.isclose(out["log_ret"][1], math.log(101 / 100), abs_tol=1e-9)
 
 
@@ -43,107 +40,34 @@ def test_daily_log_returns_independent_per_group():
         _fixture_daily("B", [date(2024, 1, 1), date(2024, 1, 2)], [50.0, 55.0]),
     ])
     out = daily_log_returns(df)
-    # First row per group must be null
     assert out.filter(pl.col("dt_comptc") == date(2024, 1, 1))["log_ret"].null_count() == 2
 
 
 def test_flag_jumps_detects_large_outlier():
-    # 69 stable cota grow + 1 huge jump on day 70
     start = date(2024, 1, 1)
     dates = [start + timedelta(days=i) for i in range(70)]
     quotas = [100.0 * (1.0001) ** i for i in range(69)]
-    quotas.append(quotas[-1] * 2.0)  # 100% jump on the last day
+    quotas.append(quotas[-1] * 2.0)  # 100% jump no último dia
     d = _fixture_daily("F1", dates, quotas)
     daily = daily_log_returns(d)
     flagged = flag_jumps(daily, ret_col="log_ret", window=60, sigma=5.0)
-    # The last row should be flagged as a jump
     assert bool(flagged["is_jump"][-1]) is True
-    # Steady-state rows shouldn't be flagged
     assert int(flagged.filter(pl.col("dt_comptc") < start + timedelta(days=65))["is_jump"].sum()) == 0
 
 
 def test_monthly_returns_from_daily_aggregates_to_eom():
     dates = [
         date(2024, 1, 5),
-        date(2024, 1, 31),  # end of January (last value of month)
+        date(2024, 1, 31),
         date(2024, 2, 1),
-        date(2024, 2, 29),  # end of February
+        date(2024, 2, 29),
     ]
     quotas = [100.0, 110.0, 110.0, 121.0]
     d = _fixture_daily("F1", dates, quotas)
     monthly = monthly_returns_from_daily(d)
-    # Two months: Jan eom=110, Feb eom=121
     assert monthly.height == 2
     feb = monthly.filter(pl.col("year_month") == date(2024, 2, 1))
-    # monthly_ret of Feb = 121/110 - 1 = 0.10
     assert math.isclose(feb["monthly_ret"][0], 0.10, abs_tol=1e-9)
-
-
-def test_attach_max_drawdown_known_fixture():
-    # Cota 100 → 120 (peak) → 90 (trough) → 110.
-    # Drawdown at trough = 90/120 - 1 = -0.25
-    dates = [date(2024, 1, i) for i in (1, 2, 3, 4)]
-    d = _fixture_daily("F1", dates, [100.0, 120.0, 90.0, 110.0])
-    dim = pl.DataFrame({"fund_key": ["F1"]})
-    out = attach_max_drawdown(dim, d)
-    assert math.isclose(out["max_drawdown"][0], -0.25, abs_tol=1e-9)
-
-
-def test_attach_max_drawdown_monotonically_increasing_is_zero():
-    dates = [date(2024, 1, i) for i in (1, 2, 3, 4)]
-    d = _fixture_daily("F1", dates, [100.0, 110.0, 121.0, 133.0])
-    dim = pl.DataFrame({"fund_key": ["F1"]})
-    out = attach_max_drawdown(dim, d)
-    assert out["max_drawdown"][0] == 0.0
-
-
-def test_attach_cagr_one_year_growth():
-    # Cota vai de 100 a 110 ao longo de 1 ano exato → CAGR = 10%.
-    d = _fixture_daily(
-        "F1",
-        [date(2024, 1, 1), date(2025, 1, 1)],
-        [100.0, 110.0],
-    )
-    dim = pl.DataFrame({"fund_key": ["F1"]})
-    out = attach_cagr(dim, d)
-    expected = (110.0 / 100.0) ** (1 / (366 / 365.25)) - 1
-    assert math.isclose(out["cagr"][0], expected, rel_tol=1e-4)
-    # ≈ 0.10 (com pequeno offset por 366 dias num ano bissexto)
-    assert 0.09 < out["cagr"][0] < 0.11
-
-
-def test_attach_cagr_returns_null_for_single_observation():
-    d = _fixture_daily("F1", [date(2024, 1, 1)], [100.0])
-    dim = pl.DataFrame({"fund_key": ["F1"]})
-    out = attach_cagr(dim, d)
-    # Apenas 1 dia → years = 0 → null
-    assert out["cagr"][0] is None
-
-
-def test_attach_cv_metric_known_returns():
-    # Retornos mensais conhecidos: [0.02, 0.01, 0.03, 0.02]
-    # mean = 0.02, std = 0.00816, CV = 0.408
-    monthly = pl.DataFrame({
-        "fund_key": ["F1"] * 4,
-        "year_month": [date(2024, m, 1) for m in (1, 2, 3, 4)],
-        "monthly_ret": [0.02, 0.01, 0.03, 0.02],
-    })
-    dim = pl.DataFrame({"fund_key": ["F1"]})
-    out = attach_cv_metric(dim, monthly)
-    expected = pl.Series([0.02, 0.01, 0.03, 0.02]).std() / abs(0.02)
-    assert math.isclose(out["cv_metric"][0], expected, rel_tol=1e-6)
-
-
-def test_attach_cv_metric_returns_null_when_mean_is_zero():
-    # Retornos simétricos → mean ≈ 0 → CV é null para evitar blow-up
-    monthly = pl.DataFrame({
-        "fund_key": ["F1"] * 4,
-        "year_month": [date(2024, m, 1) for m in (1, 2, 3, 4)],
-        "monthly_ret": [0.01, -0.01, 0.01, -0.01],
-    })
-    dim = pl.DataFrame({"fund_key": ["F1"]})
-    out = attach_cv_metric(dim, monthly)
-    assert out["cv_metric"][0] is None
 
 
 def test_attach_existing_time():
@@ -153,5 +77,49 @@ def test_attach_existing_time():
     })
     out = attach_existing_time(dim, as_of=date(2025, 1, 1))
     assert out["existing_time"][0] == 366 + 365  # 2023-01-01 → 2025-01-01: 731
-    # Quick sanity: 2024-06-15 → 2025-01-01 = 200 days
     assert out["existing_time"][1] == 200
+
+
+def test_attach_information_ratio_known_fixture():
+    # Fundo entrega +0.5% a.m. de excess sobre benchmark com std 0.2% a.m.
+    # IR mensal = 0.005 / 0.002 = 2.5; IR anualizado = 2.5 * sqrt(12) ≈ 8.66
+    months = [date(2024, m, 1) for m in range(1, 13)]
+    monthly = pl.DataFrame({
+        "fund_key": ["F1"] * 12,
+        "year_month": months,
+        "monthly_ret": [0.012, 0.013, 0.014, 0.011, 0.013, 0.015,
+                        0.012, 0.013, 0.014, 0.011, 0.013, 0.015],
+    })
+    bench_monthly = pl.DataFrame({
+        "year_month": months,
+        "benchmark_code": ["CDI"] * 12,
+        "monthly_bench_ret": [0.008, 0.008, 0.008, 0.008, 0.008, 0.008,
+                              0.008, 0.008, 0.008, 0.008, 0.008, 0.008],
+    })
+    dim = pl.DataFrame({"fund_key": ["F1"], "benchmark": ["CDI"]})
+    out = attach_information_ratio(dim, monthly, bench_monthly)
+    excess = pl.Series([
+        0.012 - 0.008, 0.013 - 0.008, 0.014 - 0.008, 0.011 - 0.008,
+        0.013 - 0.008, 0.015 - 0.008, 0.012 - 0.008, 0.013 - 0.008,
+        0.014 - 0.008, 0.011 - 0.008, 0.013 - 0.008, 0.015 - 0.008,
+    ])
+    expected_ir = excess.mean() / excess.std() * (12 ** 0.5)
+    assert math.isclose(out["information_ratio"][0], expected_ir, rel_tol=1e-6)
+
+
+def test_attach_information_ratio_returns_null_for_zero_tracking_error():
+    # Fundo perfeitamente colado no benchmark: std do excess = 0 → IR é null
+    months = [date(2024, m, 1) for m in (1, 2, 3)]
+    monthly = pl.DataFrame({
+        "fund_key": ["F1"] * 3,
+        "year_month": months,
+        "monthly_ret": [0.01, 0.01, 0.01],
+    })
+    bench_monthly = pl.DataFrame({
+        "year_month": months,
+        "benchmark_code": ["CDI"] * 3,
+        "monthly_bench_ret": [0.01, 0.01, 0.01],
+    })
+    dim = pl.DataFrame({"fund_key": ["F1"], "benchmark": ["CDI"]})
+    out = attach_information_ratio(dim, monthly, bench_monthly)
+    assert out["information_ratio"][0] is None
