@@ -22,25 +22,26 @@ The full breakdown — null handling, outlier clipping, ANBIMA risk weights — 
 
 ## Quickstart
 
+The repository is **clone-and-run**: the ANBIMA XLS files (which the source portal gates behind reCAPTCHA + paid OAuth) are committed under `data/bronze/anbima_*/dropped/`, so a fresh clone has every input the pipeline needs.
+
 ```bash
-# 1. Create venv with system Python 3.9+
+# 1. Create venv with system Python 3.9+ (3.11 recommended)
 python3 -m venv .venv
 source .venv/bin/activate
 
 # 2. Install
 pip install -e ".[dev]"
 
-# 3. End-to-end run against December 2025
+# 3. End-to-end run against the case-study reference date
 make all AS_OF=2025-12-31
-
-# Outputs:
-#   data/bronze/...                         # raw downloads, idempotent
-#   data/silver/...                         # typed parquet (class/subclass/quota/index series)
-#   data/gold/fund_metrics/as_of=...        # per-fund raw metrics
-#   data/gold/ranking/as_of=...             # per-fund score 0–100
-#   reports/as_of=2025-12-31/*_quality.md   # null + range reports per silver/gold table
-#   ranking.md                              # human-readable top-10 by profile
 ```
+
+Outputs:
+- `data/bronze/...` — raw downloads, idempotent
+- `data/silver/...` — typed parquet (class/subclass/quota/index series)
+- `data/gold/fund_metrics/`, `data/gold/ranking/` — per-fund metrics + score 0–100
+- `reports/as_of=2025-12-31/*_quality.md` — null + range reports per silver/gold table
+- `ranking.md` — human-readable top-10 by profile
 
 Each stage is invocable independently:
 
@@ -52,12 +53,30 @@ make rank   AS_OF=2025-12-31  # gold/fund_metrics + gold/ranking + ranking.md
 
 `AS_OF` is the **reference date** of the ranking — not the execution date — so re-running with the same `AS_OF` is idempotent.
 
-The default lookback is **10 years** of `INF_DIARIO` history (with automatic fallback to CVM's yearly HIST zips for years older than the monthly retention window). On first run, expect ~700 MB of bronze downloads taking ~5 minutes; subsequent runs are no-ops where source content is unchanged (etag + sha256 idempotency).
+The default lookback is **30 years** of `INF_DIARIO` history (with automatic fallback to CVM's yearly HIST zips for years older than the monthly retention window). On first run, expect ~1.5 GB of CVM bronze downloads taking ~5–10 minutes; subsequent runs are no-ops where source content is unchanged (etag + sha256 idempotency).
 
 To run with a smaller window for quick iteration:
 ```bash
-.venv/bin/python -m fund_rank.cli ingest --as-of 2025-12-31 --inf-diario-months 14 --cdi-years 5
+.venv/bin/python -m fund_rank.cli ingest --as-of 2025-12-31 --inf-diario-months 14 --index-years 5
 ```
+
+## Automated runs
+
+`.github/workflows/pipeline.yml` runs `make all` end-to-end on three triggers:
+
+| Trigger | When | `AS_OF` resolution |
+|---|---|---|
+| `schedule` | 09:00 UTC, day 2 of every month | last day of previous calendar month |
+| `workflow_dispatch` | Manual (Actions tab → Run workflow) | input field, default `2025-12-31` |
+| `push` to `data/bronze/anbima_*/dropped/**` | New ANBIMA XLS lands on `main` | pinned to `2025-12-31` |
+
+Every run uploads `ranking.md` + `reports/` as a workflow artifact (`ranking-<AS_OF>-<run_id>`, 90 d retention). On the **scheduled** run only, `github-actions[bot]` commits those back to `main` with `[skip ci]` in the message — so the canonical ranking on `main` refreshes monthly without manual intervention.
+
+CVM and BCB bronze are persisted in the runner cache, keyed on `AS_OF`'s year-month. Etag idempotency means within-month runs re-fetch only deltas.
+
+Prefect is **not** required by CI — the workflow calls `python -m fund_rank.cli` via `make all`. The `prefect` extra in `pyproject.toml` remains optional for local orchestration.
+
+**Refreshing ANBIMA**: when the portal updates IMA-B/IRF-M/Fundos 175, baixe os XLS, sobrescreva em `data/bronze/anbima_*/dropped/`, commit e push. O workflow roda automaticamente via o trigger `push`.
 
 ## Tests
 
@@ -97,4 +116,4 @@ See [docs/methodology.md](docs/methodology.md) for the metric definitions and pe
 
 ## Production path
 
-`flows/daily_ingest.py` and `flows/weekly_rank.py` are Prefect 3.x flows. See [docs/scaling.md](docs/scaling.md) for the local → S3 → distributed migration path. The bronze layer is additive and idempotent (etag check) — backfills are safe.
+For local orchestration, `flows/daily_ingest.py` is a Prefect 3.x flow covering the most-mutating subset (`registro_classe`, BCB CDI, `inf_diario`). For the full pipeline on a schedule, the simpler approach used here is GitHub Actions calling the CLI — see **Automated runs** above and [docs/scaling.md](docs/scaling.md) for the local → S3 → distributed migration path. The bronze layer is additive and idempotent (etag check), so backfills are safe.

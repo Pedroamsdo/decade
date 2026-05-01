@@ -31,8 +31,18 @@ htmlcov/
 .DS_Store
 .AppleDouble
 
-# Project data — bronze/silver/gold are reproducible artifacts, not source
-data/
+# Project data — bronze/silver/gold are reproducible artifacts, not source.
+# EXCEPTION: ANBIMA drop XLS files are committed because the source portal
+# requires reCAPTCHA + paid OAuth, so a fresh clone cannot fetch them.
+data/*
+!data/bronze/
+data/bronze/*
+!data/bronze/anbima_175/
+!data/bronze/anbima_indices/
+data/bronze/anbima_175/*
+data/bronze/anbima_indices/*
+!data/bronze/anbima_175/dropped/
+!data/bronze/anbima_indices/dropped/
 reports/
 
 # Notebooks state
