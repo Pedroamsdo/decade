@@ -71,13 +71,13 @@ Once each fund got its own canonical benchmark (ADR-003 current), excess returns
 
 ---
 
-## ADR-007 · Polars + DuckDB on local Parquet (not Spark / BigQuery in v1)
+## ADR-007 · Polars on local Parquet (not Spark / BigQuery in v1)
 
 **Status:** accepted · 2026-04-25
 
 **Context.** Brazilian fund universe ≈ 30 k classes × 252 days/year × 5 years ≈ 30–40 M rows for the daily quotas table. Each daily INF_DIARIO file is ~10 MB compressed.
 
-**Decision.** All transforms run in Polars (Python), with DuckDB for ad-hoc queries on the same Parquet files. `fsspec` abstracts the filesystem so swapping `data/` for `s3://` is configuration-only.
+**Decision.** All transforms run in Polars (Python) over Parquet files. `fsspec` abstracts the filesystem so swapping `data/` for `s3://` is configuration-only.
 
 **Alternative.** Spark/BigQuery from day 1. Rejected because the volume fits comfortably in a laptop's memory (silver tables together are well under 1 GB Parquet). Spark adds operational overhead with no win for v1.
 

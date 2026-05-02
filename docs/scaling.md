@@ -22,7 +22,7 @@ When the cadence becomes daily and we want history to live longer than a laptop 
 | Configure AWS credentials (env vars or IAM role) | 5 min |
 | Schedule `fund-rank --as-of <date>` on a worker (ECS / cron / Prefect / Airflow / GitHub Actions) | 1 hr |
 
-The code does **not** change: `fsspec` abstracts the filesystem, and Polars / DuckDB read/write Parquet over s3 directly. The CLI entrypoint (`fund-rank`) is single-shot and idempotent — easy to wrap in any scheduler. Picking the scheduler is a deployment decision (cost, team familiarity, existing infra), not an architecture decision; ADR-012 explains why we don't pre-pick one in v1.
+The code does **not** change: `fsspec` abstracts the filesystem, and Polars reads/writes Parquet over s3 directly. The CLI entrypoint (`fund-rank`) is single-shot and idempotent — easy to wrap in any scheduler. Picking the scheduler is a deployment decision (cost, team familiarity, existing infra), not an architecture decision; ADR-012 explains why we don't pre-pick one in v1.
 
 Suggested cadence:
 - **daily** (06:00 BRT, M-F) — refetch CAD, registro_classe, CDI, INF_DIARIO (current month + M-1 for late corrections). Each source is idempotent via etag/sha256 (ADR-008).
@@ -45,7 +45,7 @@ When the universe widens (e.g., add multimercado, ações, FII, FIDC) or the cad
 | Change | Notes |
 |---|---|
 | Treat `data/silver/*.parquet` as **external tables** in BigQuery, Athena, or Snowflake | Same Parquet, no rewrite |
-| Move heavy aggregations (`gold/build_fund_metrics`) from Polars to SQL views | DuckDB → BigQuery dialect; mostly direct translations |
+| Move heavy aggregations (`gold/build_fund_metrics`) from Polars to SQL views | Translate Polars expressions to BigQuery SQL; mostly direct mappings |
 | Materialize `gold/fund_metrics` via `dbt` against the warehouse | Adds dependency surface; only worth it at 100× |
 | Worker pool: Prefect / Airflow agents on Kubernetes, autoscaling per queue depth | |
 

@@ -1,5 +1,9 @@
 # fund_rank — Brazilian Fixed-Income Fund Ranking
 
+## Decade Case Apresentation
+
+[Watch on Loom](https://www.loom.com/share/9ca4e19a66184fe58c9e30240db7db9d)
+
 Ranks Brazilian fixed-income funds against a configurable reference date and produces a Top-5 list per investor profile (`publico_alvo`: Público Geral / Qualificado / Profissional).
 
 Built for the **Decade PS** take-home case. Sources: CVM Dados Abertos, BCB SGS, ANBIMA dropped XLS files.
